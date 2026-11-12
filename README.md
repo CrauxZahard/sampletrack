@@ -92,9 +92,9 @@ never from a terminal sample or from anywhere else in the app. The notification 
 person only the messages addressed to them, with per-person read state, and filters for
 **Semua**, **Belum dibaca**, **Belum analisa**, **Approved**, **Menunggu HUDS**, **Perlu
 resample**, and **Tidak lolos** so a reader such as QCI can open the resampling queue directly.
-The **Approved** filter groups an approved sample with one approved setelah HUDS, and **Tidak
-lolos** groups a rejected sample with one that has finished resampling. The table summary and
-the dashboard use the same groups, so the counts never disagree.
+The **Approved** filter groups an approved sample with one approved dengan HUDS, and **Tidak
+lolos** groups a rejected sample with one that has finished resampling. The table filters and
+the summary use the same groups, so their counts never disagree.
 
 Remarks are separate from the status save: the composer appends immediately and keeps the
 author. A terminal status closes the sample: no further status changes and no further remarks.
