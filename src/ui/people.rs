@@ -9,7 +9,7 @@ use crate::model::{Scope, Scopes, User};
 use crate::ui::shell::rule;
 use crate::ui::widgets::{avatar, caption, micro, mono, scope_toggle, small, ui_medium};
 
-const W_SCOPES: f32 = 356.0;
+const W_SCOPES: f32 = 440.0;
 
 pub fn page(s: &App, k: &Kit, _layer: &mut Vec<El>) -> El {
     if !s.is_admin() {
@@ -25,7 +25,7 @@ pub fn page(s: &App, k: &Kit, _layer: &mut Vec<El>) -> El {
                 .gap(2.0)
                 .child(text("SCOPE AKSES TIM").font(micro(k)).color(k.c.text_faint))
                 .child(
-                    text("Admin mencakup Input dan Update. Read-only mengosongkan semua izin.")
+                    text("Admin mencakup Input, Update, dan Resample. Read-only mengosongkan semua izin.")
                         .font(caption(k))
                         .color(k.c.text_muted),
                 ),

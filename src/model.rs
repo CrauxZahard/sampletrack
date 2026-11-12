@@ -7,23 +7,32 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-/// A permission a person can hold. Input and update can be combined (Leader QC), admin covers
-/// both, and read-only is the empty set.
+/// A permission a person can hold. Input and update can be combined (Leader QC), Resample is
+/// the QCI step that closes a resampling request, admin covers every other scope, and read-only
+/// is the empty set.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scope {
     Input,
     Update,
+    Resample,
     ReadOnly,
     Admin,
 }
 
 impl Scope {
-    pub const ALL: [Scope; 4] = [Scope::Input, Scope::Update, Scope::ReadOnly, Scope::Admin];
+    pub const ALL: [Scope; 5] = [
+        Scope::Input,
+        Scope::Update,
+        Scope::Resample,
+        Scope::ReadOnly,
+        Scope::Admin,
+    ];
 
     pub fn short(self) -> &'static str {
         match self {
             Scope::Input => "Input",
             Scope::Update => "Update",
+            Scope::Resample => "Resample",
             Scope::ReadOnly => "Read-only",
             Scope::Admin => "Admin",
         }
@@ -39,6 +48,8 @@ pub struct Scopes {
     #[serde(default)]
     pub update: bool,
     #[serde(default)]
+    pub resample: bool,
+    #[serde(default)]
     pub admin: bool,
 }
 
@@ -46,6 +57,7 @@ impl Scopes {
     pub const READ_ONLY: Scopes = Scopes {
         input: false,
         update: false,
+        resample: false,
         admin: false,
     };
 
@@ -53,6 +65,7 @@ impl Scopes {
         Scopes {
             input: true,
             update: false,
+            resample: false,
             admin: false,
         }
     }
@@ -61,6 +74,16 @@ impl Scopes {
         Scopes {
             input: false,
             update: true,
+            resample: false,
+            admin: false,
+        }
+    }
+
+    pub const fn resample() -> Scopes {
+        Scopes {
+            input: false,
+            update: false,
+            resample: true,
             admin: false,
         }
     }
@@ -69,6 +92,7 @@ impl Scopes {
         Scopes {
             input: true,
             update: true,
+            resample: false,
             admin: false,
         }
     }
@@ -77,6 +101,7 @@ impl Scopes {
         Scopes {
             input: false,
             update: false,
+            resample: false,
             admin: true,
         }
     }
@@ -89,19 +114,24 @@ impl Scopes {
         self.update || self.admin
     }
 
+    pub fn can_resample(self) -> bool {
+        self.resample || self.admin
+    }
+
     pub fn is_admin(self) -> bool {
         self.admin
     }
 
     pub fn is_read_only(self) -> bool {
-        !self.input && !self.update && !self.admin
+        !self.input && !self.update && !self.resample && !self.admin
     }
 
-    /// The scope a toggle shows as held: admin covers input and update.
+    /// The scope a toggle shows as held: admin covers input, update and resample.
     pub fn holds(self, scope: Scope) -> bool {
         match scope {
             Scope::Input => self.can_input(),
             Scope::Update => self.can_update(),
+            Scope::Resample => self.can_resample(),
             Scope::ReadOnly => self.is_read_only(),
             Scope::Admin => self.is_admin(),
         }
@@ -111,6 +141,7 @@ impl Scopes {
         match scope {
             Scope::Input => self.input = !self.input,
             Scope::Update => self.update = !self.update,
+            Scope::Resample => self.resample = !self.resample,
             Scope::ReadOnly => *self = Scopes::READ_ONLY,
             Scope::Admin => self.admin = !self.admin,
         }
@@ -127,6 +158,9 @@ impl Scopes {
         }
         if self.update {
             parts.push("Update sample");
+        }
+        if self.resample {
+            parts.push("Resample sample");
         }
         if parts.is_empty() {
             "Read-only".into()
@@ -158,8 +192,10 @@ impl Stage {
     }
 }
 
-/// A sample starts unanalyzed. Its first status decision is final: once it leaves
-/// [`Status::Unanalyzed`], nobody can change it again.
+/// Where a sample sits in the review. A sample starts [`Status::Unanalyzed`]. A first decision
+/// can land on an intermediate state ([`Status::WaitingHuds`], [`Status::Resampling`]) or a
+/// terminal one; intermediate states have one more step (HUDS approval for the Leader QC, or a
+/// resample-complete mark for QCI). Terminal states cannot move again.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Status {
@@ -167,28 +203,44 @@ pub enum Status {
     #[serde(rename = "unanalyzed")]
     Unanalyzed,
     Approved,
+    #[serde(rename = "approved_huds")]
+    ApprovedHuds,
     #[serde(rename = "waiting_huds")]
     WaitingHuds,
     Resampling,
+    Resampled,
+    #[serde(rename = "not_qualified")]
+    NotQualified,
 }
 
 impl Status {
     #[cfg(test)]
-    pub const ALL: [Status; 4] = [
+    pub const ALL: [Status; 7] = [
         Status::Unanalyzed,
+        Status::Approved,
+        Status::ApprovedHuds,
+        Status::WaitingHuds,
+        Status::Resampling,
+        Status::Resampled,
+        Status::NotQualified,
+    ];
+    /// The outcomes a first analysis can land on. Unanalyzed is only the starting state.
+    pub const DECISIONS: [Status; 4] = [
         Status::Approved,
         Status::WaitingHuds,
         Status::Resampling,
+        Status::NotQualified,
     ];
-    /// The outcomes a sample can be moved to. Unanalyzed is only the starting state.
-    pub const DECISIONS: [Status; 3] = [Status::Approved, Status::WaitingHuds, Status::Resampling];
 
     pub fn label(self) -> &'static str {
         match self {
             Status::Unanalyzed => "Belum Analisa",
             Status::Approved => "Approved",
+            Status::ApprovedHuds => "Approved dengan HUDS",
             Status::WaitingHuds => "Menunggu Approval HUDS",
-            Status::Resampling => "Resampling Ulang",
+            Status::Resampling => "Perlu Resample",
+            Status::Resampled => "Sudah Resample",
+            Status::NotQualified => "Tidak Memenuhi Syarat",
         }
     }
 
@@ -196,22 +248,42 @@ impl Status {
         match self {
             Status::Unanalyzed => "Sample baru masuk, belum dianalisa.",
             Status::Approved => "Sample lolos approval dan siap dipakai.",
+            Status::ApprovedHuds => "Sample disetujui setelah review HUDS.",
             Status::WaitingHuds => "Dokumen sudah dikirim, menunggu review HUDS.",
             Status::Resampling => "Sample perlu diambil dan diuji ulang.",
+            Status::Resampled => "Sample sudah diambil ulang dan selesai diresample.",
+            Status::NotQualified => "Sample tidak lolos syarat dan dihentikan.",
         }
     }
 
     pub fn rank(self) -> u8 {
         match self {
             Status::Unanalyzed => 0,
-            Status::Approved => 1,
-            Status::WaitingHuds => 2,
-            Status::Resampling => 3,
+            Status::WaitingHuds => 1,
+            Status::Resampling => 2,
+            Status::Resampled => 3,
+            Status::ApprovedHuds => 4,
+            Status::Approved => 5,
+            Status::NotQualified => 6,
         }
     }
 
+    /// The steps this status still allows. Empty for terminal statuses.
+    pub fn transitions(self) -> &'static [Status] {
+        match self {
+            Status::Unanalyzed => &Self::DECISIONS,
+            Status::WaitingHuds => &[Status::ApprovedHuds, Status::NotQualified],
+            Status::Resampling => &[Status::Resampled],
+            _ => &[],
+        }
+    }
+
+    /// A terminal state: no further status, notification or remark.
     pub fn is_final(self) -> bool {
-        self != Status::Unanalyzed
+        matches!(
+            self,
+            Status::Approved | Status::ApprovedHuds | Status::Resampled | Status::NotQualified
+        )
     }
 }
 
@@ -382,7 +454,7 @@ impl Data {
             User {
                 id: 5,
                 name: "QCI".into(),
-                scopes: Scopes::READ_ONLY,
+                scopes: Scopes::resample(),
                 legacy_role: String::new(),
             },
         ];
@@ -423,11 +495,11 @@ impl Data {
                 "Ibuprofen 400 mg",
                 "MO-2612-009",
                 Stage::Coated,
-                Status::Approved,
+                Status::ApprovedHuds,
                 2,
                 4,
                 day,
-                "Lolos uji stabilitas.",
+                "Lolos uji stabilitas; disetujui setelah review HUDS.",
             ),
             (
                 "Cetirizine 10 mg",
@@ -453,11 +525,11 @@ impl Data {
                 "Metformin 500 mg",
                 "MO-2612-017",
                 Stage::Coated,
-                Status::Resampling,
+                Status::Resampled,
                 2,
-                1,
+                5,
                 2 * day + 4 * hour,
-                "Bobot tablet bervariasi di atas toleransi.",
+                "Sudah diresample ulang dan diserahkan ke QCI.",
             ),
             (
                 "Salbutamol Inhaler",
@@ -473,11 +545,11 @@ impl Data {
                 "Simvastatin 20 mg",
                 "MO-2613-006",
                 Stage::Coated,
-                Status::Approved,
+                Status::NotQualified,
                 2,
                 4,
                 3 * day + 2 * hour,
-                "Sample pembanding sesuai.",
+                "Tidak memenuhi syarat; kadar aktif di luar spesifikasi.",
             ),
             (
                 "Loratadine 10 mg",
@@ -516,7 +588,7 @@ impl Data {
             rows.into_iter().enumerate()
         {
             let at = now.saturating_sub(ago);
-            let input_at = if status.is_final() {
+            let input_at = if status != Status::Unanalyzed {
                 at.saturating_sub(6 * hour)
             } else {
                 at
@@ -592,7 +664,7 @@ impl Data {
                 to: vec![1],
                 title: "Sample baru ditambahkan".into(),
                 body: "Helper menambahkan Paracetamol 500 mg (MO-2611-018).".into(),
-                at: now.saturating_sub(6 * hour),
+                at: now.saturating_sub(12 * hour),
                 read_by: vec![1],
                 batch: "MO-2611-018".into(),
                 status: Some(Status::Unanalyzed),
@@ -602,8 +674,8 @@ impl Data {
                 id: 3,
                 from: 4,
                 to: vec![1, 2, 3, 5],
-                title: "Sample perlu resampling".into(),
-                body: "Leader QC menandai Vitamin C 1000 mg (MO-2612-004) → Resampling Ulang."
+                title: "Sample perlu resample".into(),
+                body: "Leader QC menandai Vitamin C 1000 mg (MO-2612-004) → Perlu Resample."
                     .into(),
                 at: now.saturating_sub(hour),
                 read_by: Vec::new(),
@@ -611,16 +683,66 @@ impl Data {
                 status: Some(Status::Resampling),
                 stage: Some(Stage::Granule),
             },
+            Notice {
+                id: 4,
+                from: 4,
+                to: vec![1, 2, 3, 5],
+                title: "Approved dengan HUDS".into(),
+                body: "Leader QC menyetujui Ibuprofen 400 mg (MO-2612-009) setelah review HUDS."
+                    .into(),
+                at: now.saturating_sub(20 * hour),
+                read_by: vec![1, 2],
+                batch: "MO-2612-009".into(),
+                status: Some(Status::ApprovedHuds),
+                stage: Some(Stage::Coated),
+            },
+            Notice {
+                id: 5,
+                from: 5,
+                to: vec![1, 2, 3, 4],
+                title: "Resample selesai".into(),
+                body: "QCI menandai Metformin 500 mg (MO-2612-017) → Sudah Resample.".into(),
+                at: now.saturating_sub(20 * 60),
+                read_by: Vec::new(),
+                batch: "MO-2612-017".into(),
+                status: Some(Status::Resampled),
+                stage: Some(Stage::Coated),
+            },
+            Notice {
+                id: 6,
+                from: 4,
+                to: vec![1, 2, 3, 5],
+                title: "Tidak memenuhi syarat".into(),
+                body: "Leader QC menandai Simvastatin 20 mg (MO-2613-006) → Tidak Memenuhi Syarat."
+                    .into(),
+                at: now.saturating_sub(2 * hour),
+                read_by: Vec::new(),
+                batch: "MO-2613-006".into(),
+                status: Some(Status::NotQualified),
+                stage: Some(Stage::Coated),
+            },
+            Notice {
+                id: 7,
+                from: 4,
+                to: vec![1, 2, 3, 5],
+                title: "Sample disetujui".into(),
+                body: "Leader QC menyetujui Paracetamol 500 mg (MO-2611-018) → Approved.".into(),
+                at: now.saturating_sub(8 * hour),
+                read_by: vec![1, 2],
+                batch: "MO-2611-018".into(),
+                status: Some(Status::Approved),
+                stage: Some(Stage::Coated),
+            },
         ];
         Data {
-            version: 2,
+            version: 3,
             users,
             samples,
             notices,
             current_user: 1,
             next_user: 6,
             next_sample: 13,
-            next_notice: 4,
+            next_notice: 8,
             next_remark,
             dark: None,
         }
@@ -726,37 +848,70 @@ mod tests {
     use super::*;
 
     #[test]
-    fn seed_has_the_five_people_and_four_states() {
+    fn seed_covers_every_status_and_the_five_people() {
         let d = Data::seed(1_000_000);
         assert_eq!(d.users.len(), 5);
         assert_eq!(d.samples.len(), 12);
-        assert!(d.samples.iter().any(|s| s.status == Status::WaitingHuds));
-        assert_eq!(
-            d.samples
-                .iter()
-                .filter(|s| s.status == Status::Unanalyzed)
-                .count(),
-            2
-        );
+        for status in Status::ALL {
+            assert!(
+                d.samples.iter().any(|s| s.status == status),
+                "seed has no {status:?} sample"
+            );
+        }
         assert_eq!(d.users.iter().filter(|u| u.scopes.can_input()).count(), 3);
         assert_eq!(d.users.iter().filter(|u| u.scopes.can_update()).count(), 2);
         assert_eq!(
-            d.users.iter().filter(|u| u.scopes.is_read_only()).count(),
+            d.users.iter().filter(|u| u.scopes.can_resample()).count(),
             2
+        );
+        assert_eq!(
+            d.users.iter().filter(|u| u.scopes.is_read_only()).count(),
+            1
         );
         let leader = d.users.iter().find(|u| u.name == "Leader QC").unwrap();
         assert!(leader.scopes.input && leader.scopes.update && !leader.scopes.admin);
+        let qci = d.users.iter().find(|u| u.name == "QCI").unwrap();
+        assert!(qci.scopes.resample && !qci.scopes.is_read_only());
         assert!(d.samples.iter().all(|s| !s.remarks.is_empty()));
         assert!(d.samples.iter().any(|s| s.remarks.len() > 1));
+    }
+
+    #[test]
+    fn statuses_only_move_along_the_review_graph() {
+        assert!(Status::Unanalyzed.transitions().contains(&Status::Approved));
+        assert_eq!(
+            Status::WaitingHuds.transitions(),
+            &[Status::ApprovedHuds, Status::NotQualified]
+        );
+        assert_eq!(Status::Resampling.transitions(), &[Status::Resampled]);
+        assert!(
+            Status::WaitingHuds
+                .transitions()
+                .contains(&Status::NotQualified)
+        );
+        assert!(!Status::Unanalyzed.is_final());
+        assert!(!Status::WaitingHuds.is_final());
+        assert!(!Status::Resampling.is_final());
+        assert!(Status::Approved.is_final());
+        assert!(Status::ApprovedHuds.is_final());
+        assert!(Status::Resampled.is_final());
+        assert!(Status::NotQualified.is_final());
+        assert!(Status::Approved.transitions().is_empty());
+        assert!(Status::Resampled.transitions().is_empty());
     }
 
     #[test]
     fn scopes_can_combine_and_read_only_is_the_empty_set() {
         assert!(!Scopes::READ_ONLY.can_input());
         assert!(!Scopes::READ_ONLY.can_update());
+        assert!(!Scopes::READ_ONLY.can_resample());
         assert!(Scopes::admin().can_input() && Scopes::admin().can_update());
+        assert!(Scopes::admin().can_resample());
         assert!(Scopes::input().can_input() && !Scopes::input().can_update());
         assert!(!Scopes::update().can_input() && Scopes::update().can_update());
+        assert!(Scopes::resample().can_resample() && !Scopes::resample().can_update());
+        assert!(!Scopes::resample().is_read_only());
+        assert_eq!(Scopes::resample().summary(), "Resample sample");
         let leader = Scopes::input_and_update();
         assert!(leader.can_input() && leader.can_update());
         assert_eq!(leader.summary(), "Input sample + Update sample");

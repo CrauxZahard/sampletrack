@@ -59,14 +59,6 @@ fn metrics(s: &App, k: &Kit) -> El {
         .child(metric_rule(k))
         .child(metric(
             k,
-            "APPROVED",
-            c.approved,
-            "Lolos approval",
-            k.c.success.fg,
-        ))
-        .child(metric_rule(k))
-        .child(metric(
-            k,
             "MENUNGGU HUDS",
             c.waiting,
             "Butuh review",
@@ -75,9 +67,41 @@ fn metrics(s: &App, k: &Kit) -> El {
         .child(metric_rule(k))
         .child(metric(
             k,
-            "RESAMPLING",
+            "PERLU RESAMPLE",
             c.resampling,
-            "Perlu sample ulang",
+            "Belum diambil",
+            k.c.danger.fg,
+        ))
+        .child(metric_rule(k))
+        .child(metric(
+            k,
+            "SUDAH RESAMPLE",
+            c.resampled,
+            "Sudah diambil",
+            k.c.text_accent,
+        ))
+        .child(metric_rule(k))
+        .child(metric(
+            k,
+            "APPROVED",
+            c.approved,
+            "Lolos approval",
+            k.c.success.fg,
+        ))
+        .child(metric_rule(k))
+        .child(metric(
+            k,
+            "APPROVED HUDS",
+            c.approved_huds,
+            "Lolos review HUDS",
+            k.c.success.fg,
+        ))
+        .child(metric_rule(k))
+        .child(metric(
+            k,
+            "TIDAK MEMENUHI",
+            c.not_qualified,
+            "Tidak lolos syarat",
             k.c.danger.fg,
         ))
 }
@@ -178,6 +202,14 @@ fn toolbar(s: &App, k: &Kit, shown: usize, total: usize) -> El {
     for f in Filter::ALL {
         tabs = tabs.child(filter_tab(k, f, s.filter == f));
     }
+    let tabs = el()
+        .key("filter-viewport")
+        .grow(1.0)
+        .min_w(0.0)
+        .child(tabs)
+        .scroll_x()
+        .scroll_edge_fade(14.0)
+        .label("Filter status");
 
     row()
         .key("log-toolbar")
@@ -187,7 +219,6 @@ fn toolbar(s: &App, k: &Kit, shown: usize, total: usize) -> El {
         .center_y()
         .child(search)
         .child(tabs)
-        .child(el().grow(1.0))
         .child(
             text(format!("{shown:02}/{total:02}"))
                 .font(mono(k))
@@ -196,7 +227,7 @@ fn toolbar(s: &App, k: &Kit, shown: usize, total: usize) -> El {
 }
 
 fn filter_tab(k: &Kit, f: Filter, active: bool) -> El {
-    let label = f.label().to_uppercase();
+    let label = f.tab().to_uppercase();
     col()
         .key(format!("filter-{}", f.label()))
         .role("radio")

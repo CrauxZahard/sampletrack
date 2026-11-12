@@ -173,9 +173,11 @@ fn update_sample(s: &App, k: &Kit, layer: &mut Vec<El>, id: u64) {
         return;
     };
     let can_update = s.can_update();
+    let can_resample = s.can_resample();
     let is_final = sample.status.is_final();
+    let options = s.next_statuses(sample.status);
+    let can_decide = !options.is_empty();
     let can_comment = s.can_comment() && !is_final;
-    let can_decide = can_update && !is_final;
     let now = s.now();
     let input_by = s.data.user(sample.input_by);
     let updated_by = s.data.user(sample.updated_by);
@@ -203,7 +205,7 @@ fn update_sample(s: &App, k: &Kit, layer: &mut Vec<El>, id: u64) {
         ));
 
     let mut statuses = col().w_full().gap(7.0);
-    for st in Status::DECISIONS {
+    for &st in options {
         statuses = statuses.child(choice(
             k,
             st.label(),
@@ -214,21 +216,35 @@ fn update_sample(s: &App, k: &Kit, layer: &mut Vec<El>, id: u64) {
             move |s: &mut App| s.edit_status = st,
         ));
     }
+    let heading = match sample.status {
+        Status::Unanalyzed => "KEPUTUSAN ANALISA",
+        Status::WaitingHuds => "KEPUTUSAN HUDS",
+        Status::Resampling => "STATUS RESAMPLE",
+        _ => "STATUS",
+    };
     let mut status_col = col()
         .w(232.0)
         .gap(7.0)
-        .child(section(k, "KEPUTUSAN ANALISA"))
+        .child(section(k, heading))
         .child(statuses);
     if is_final {
         status_col = status_col.child(locked_note(
             k,
-            "Status sudah final. Tidak ada perubahan status atau notifikasi lagi.",
+            "Status final. Tidak ada perubahan status atau notifikasi lagi.",
         ));
-    } else if !can_update {
-        status_col = status_col.child(locked_note(k, "Scope Anda hanya dapat melihat status."));
-    } else if s.edit_status == Status::Unanalyzed {
+    } else if sample.status == Status::Resampling && !can_resample {
+        status_col = status_col.child(locked_note(
+            k,
+            "Hanya QCI yang dapat menandai sample sudah diresample.",
+        ));
+    } else if matches!(sample.status, Status::Unanalyzed | Status::WaitingHuds) && !can_update {
+        status_col = status_col.child(locked_note(
+            k,
+            "Hanya Leader QC yang dapat memutuskan status sample.",
+        ));
+    } else if s.edit_status == sample.status {
         status_col = status_col.child(
-            text("Pilih satu hasil analisa untuk menyimpan.")
+            text("Pilih satu status baru untuk menyimpan.")
                 .font(caption(k))
                 .color(k.c.text_faint),
         );
@@ -300,12 +316,18 @@ fn update_sample(s: &App, k: &Kit, layer: &mut Vec<El>, id: u64) {
     }
 
     let primary = if can_decide {
+        let blocked = s.edit_status == sample.status || !options.contains(&s.edit_status);
+        let label = if sample.status == Status::Resampling {
+            "Tandai sudah resample"
+        } else {
+            "Simpan update"
+        };
         Some(
-            Button::new("Simpan update")
+            Button::new(label)
                 .variant(ButtonVariant::Contrast)
                 .control_size(ControlSize::Regular)
                 .icon(&icons::SEND)
-                .disabled(s.edit_status == Status::Unanalyzed)
+                .disabled(blocked)
                 .on_press(|s: &mut App| s.save_update())
                 .build(k)
                 .key("save-update"),

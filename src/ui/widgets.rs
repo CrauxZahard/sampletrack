@@ -129,8 +129,11 @@ pub fn status_colors(k: &Kit, status: Status) -> (Color, Color) {
     match status {
         Status::Unanalyzed => (k.c.layer_02, k.c.text_muted),
         Status::Approved => (k.c.success.bg, k.c.success.fg),
+        Status::ApprovedHuds => (k.c.success.bg, k.c.success.fg),
         Status::WaitingHuds => (k.c.warning.bg, k.c.warning.fg),
         Status::Resampling => (k.c.danger.bg, k.c.danger.fg),
+        Status::Resampled => (k.c.layer_02, k.c.text_accent),
+        Status::NotQualified => (k.c.danger.bg, k.c.danger.fg),
     }
 }
 

@@ -22,6 +22,14 @@ pub fn page(s: &App, k: &Kit) -> El {
     for (i, filter) in NoticeFilter::ALL.into_iter().enumerate() {
         tabs = tabs.child(filter_tab(k, filter, counts[i], s.notice_filter == filter));
     }
+    let tabs = el()
+        .key("notice-filter-viewport")
+        .grow(1.0)
+        .min_w(0.0)
+        .child(tabs)
+        .scroll_x()
+        .scroll_edge_fade(14.0)
+        .label("Filter notifikasi");
 
     let mut list = col().key("notice-list").w_full();
     if rows.is_empty() {
@@ -44,7 +52,6 @@ pub fn page(s: &App, k: &Kit) -> El {
                 .gap(10.0)
                 .center_y()
                 .child(tabs)
-                .child(el().grow(1.0))
                 .child(
                     text(format!("{:02} NOTIFIKASI", total))
                         .font(mono_small(k))
@@ -56,18 +63,17 @@ pub fn page(s: &App, k: &Kit) -> El {
 }
 
 fn filter_tab(k: &Kit, filter: NoticeFilter, count: usize, active: bool) -> El {
-    let resampling = filter == NoticeFilter::Resampling;
+    let danger = matches!(
+        filter,
+        NoticeFilter::Resampling | NoticeFilter::NotQualified
+    );
     let ink = if active {
-        if resampling {
-            k.c.danger.fg
-        } else {
-            k.c.text_base
-        }
+        if danger { k.c.danger.fg } else { k.c.text_base }
     } else {
         k.c.text_faint
     };
     let bar = if active {
-        if resampling {
+        if danger {
             k.c.danger.fg
         } else {
             k.c.text_accent
@@ -94,7 +100,7 @@ fn filter_tab(k: &Kit, filter: NoticeFilter, count: usize, active: bool) -> El {
                 .gap(5.0)
                 .center_y()
                 .child(
-                    text(filter.label().to_uppercase())
+                    text(filter.tab().to_uppercase())
                         .font(micro(k))
                         .color(ink)
                         .a11y_hidden(),

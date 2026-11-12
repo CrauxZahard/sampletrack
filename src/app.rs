@@ -25,17 +25,23 @@ pub enum Filter {
     All,
     Unanalyzed,
     Approved,
+    ApprovedHuds,
     Waiting,
     Resampling,
+    Resampled,
+    NotQualified,
 }
 
 impl Filter {
-    pub const ALL: [Filter; 5] = [
+    pub const ALL: [Filter; 8] = [
         Filter::All,
         Filter::Unanalyzed,
         Filter::Approved,
+        Filter::ApprovedHuds,
         Filter::Waiting,
         Filter::Resampling,
+        Filter::Resampled,
+        Filter::NotQualified,
     ];
 
     pub fn label(self) -> &'static str {
@@ -43,8 +49,25 @@ impl Filter {
             Filter::All => "Semua",
             Filter::Unanalyzed => "Belum analisa",
             Filter::Approved => "Approved",
+            Filter::ApprovedHuds => "Approved HUDS",
             Filter::Waiting => "Menunggu HUDS",
             Filter::Resampling => "Resampling",
+            Filter::Resampled => "Sudah resample",
+            Filter::NotQualified => "Tidak memenuhi",
+        }
+    }
+
+    /// The compact tab caption; [`Filter::label`] stays the full name for screen readers.
+    pub fn tab(self) -> &'static str {
+        match self {
+            Filter::All => "Semua",
+            Filter::Unanalyzed => "Belum",
+            Filter::Approved => "Approved",
+            Filter::ApprovedHuds => "Appr. HUDS",
+            Filter::Waiting => "Menunggu",
+            Filter::Resampling => "Resample",
+            Filter::Resampled => "Sudah",
+            Filter::NotQualified => "Tidak lolos",
         }
     }
 
@@ -53,32 +76,41 @@ impl Filter {
             Filter::All => true,
             Filter::Unanalyzed => status == Status::Unanalyzed,
             Filter::Approved => status == Status::Approved,
+            Filter::ApprovedHuds => status == Status::ApprovedHuds,
             Filter::Waiting => status == Status::WaitingHuds,
             Filter::Resampling => status == Status::Resampling,
+            Filter::Resampled => status == Status::Resampled,
+            Filter::NotQualified => status == Status::NotQualified,
         }
     }
 }
 
-/// Which notices the inbox shows. Status filters make the "resampling" queue one click for
-/// QCI and the other readers.
+/// Which notices the inbox shows. Status filters make the "resampling" queue one click for QCI
+/// and the other readers, and keep the HUDS and rejection queues separate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NoticeFilter {
     All,
     Unread,
     Unanalyzed,
     Approved,
+    ApprovedHuds,
     Waiting,
     Resampling,
+    Resampled,
+    NotQualified,
 }
 
 impl NoticeFilter {
-    pub const ALL: [NoticeFilter; 6] = [
+    pub const ALL: [NoticeFilter; 9] = [
         NoticeFilter::All,
         NoticeFilter::Unread,
         NoticeFilter::Unanalyzed,
         NoticeFilter::Approved,
+        NoticeFilter::ApprovedHuds,
         NoticeFilter::Waiting,
         NoticeFilter::Resampling,
+        NoticeFilter::Resampled,
+        NoticeFilter::NotQualified,
     ];
 
     pub fn label(self) -> &'static str {
@@ -87,8 +119,26 @@ impl NoticeFilter {
             NoticeFilter::Unread => "Belum dibaca",
             NoticeFilter::Unanalyzed => "Belum analisa",
             NoticeFilter::Approved => "Approved",
+            NoticeFilter::ApprovedHuds => "Approved HUDS",
             NoticeFilter::Waiting => "Menunggu HUDS",
             NoticeFilter::Resampling => "Resampling",
+            NoticeFilter::Resampled => "Sudah resample",
+            NoticeFilter::NotQualified => "Tidak memenuhi",
+        }
+    }
+
+    /// The compact tab caption; [`NoticeFilter::label`] stays the full name for screen readers.
+    pub fn tab(self) -> &'static str {
+        match self {
+            NoticeFilter::All => "Semua",
+            NoticeFilter::Unread => "Belum dibaca",
+            NoticeFilter::Unanalyzed => "Belum",
+            NoticeFilter::Approved => "Approved",
+            NoticeFilter::ApprovedHuds => "Appr. HUDS",
+            NoticeFilter::Waiting => "Menunggu",
+            NoticeFilter::Resampling => "Resample",
+            NoticeFilter::Resampled => "Sudah",
+            NoticeFilter::NotQualified => "Tidak lolos",
         }
     }
 
@@ -98,8 +148,11 @@ impl NoticeFilter {
             NoticeFilter::Unread => !notice.read_by.contains(&me),
             NoticeFilter::Unanalyzed => notice.status == Some(Status::Unanalyzed),
             NoticeFilter::Approved => notice.status == Some(Status::Approved),
+            NoticeFilter::ApprovedHuds => notice.status == Some(Status::ApprovedHuds),
             NoticeFilter::Waiting => notice.status == Some(Status::WaitingHuds),
             NoticeFilter::Resampling => notice.status == Some(Status::Resampling),
+            NoticeFilter::Resampled => notice.status == Some(Status::Resampled),
+            NoticeFilter::NotQualified => notice.status == Some(Status::NotQualified),
         }
     }
 }
@@ -109,8 +162,11 @@ pub struct Counts {
     pub total: usize,
     pub unanalyzed: usize,
     pub approved: usize,
+    pub approved_huds: usize,
     pub waiting: usize,
     pub resampling: usize,
+    pub resampled: usize,
+    pub not_qualified: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -202,7 +258,7 @@ impl App {
         let repo = LocalJson::open();
         let mut data = repo
             .load()
-            .filter(|d| d.version >= 2 && !d.users.is_empty() && d.user(d.current_user).is_some())
+            .filter(|d| d.version >= 3 && !d.users.is_empty() && d.user(d.current_user).is_some())
             .unwrap_or_else(|| Data::seed(now_secs()));
         data.migrate();
         App::with_repo(data, Box::new(repo))
@@ -271,6 +327,22 @@ impl App {
 
     pub fn can_update(&self) -> bool {
         self.me().scopes.can_update()
+    }
+
+    /// QCI's step: close a resampling request by marking the sample already resampled.
+    pub fn can_resample(&self) -> bool {
+        self.me().scopes.can_resample()
+    }
+
+    /// The statuses the signed-in person may move this sample to. Empty when the sample is
+    /// terminal or the person lacks the capability for this step.
+    pub fn next_statuses(&self, current: Status) -> &'static [Status] {
+        let allowed = if current == Status::Resampling {
+            self.can_resample()
+        } else {
+            self.can_update()
+        };
+        if allowed { current.transitions() } else { &[] }
     }
 
     /// Remarks are a conversation, so every writable scope can join it.
@@ -365,8 +437,11 @@ impl App {
                 match sample.status {
                     Status::Unanalyzed => counts.unanalyzed += 1,
                     Status::Approved => counts.approved += 1,
+                    Status::ApprovedHuds => counts.approved_huds += 1,
                     Status::WaitingHuds => counts.waiting += 1,
                     Status::Resampling => counts.resampling += 1,
+                    Status::Resampled => counts.resampled += 1,
+                    Status::NotQualified => counts.not_qualified += 1,
                 }
             }
             *cache = (self.counts_version, counts);
@@ -481,8 +556,16 @@ impl App {
         let Some(sample) = self.data.sample(id) else {
             return;
         };
+        let current = sample.status;
+        let options = self.next_statuses(current);
         self.edit_id = Some(id);
-        self.edit_status = sample.status;
+        // Unanalyzed always starts blank so a decision is a deliberate pick. An intermediate
+        // status starts on its first legal next step, which is the one person who can act here.
+        self.edit_status = if current == Status::Unanalyzed || options.is_empty() {
+            current
+        } else {
+            options[0]
+        };
         self.remark_draft = TextEdit::new("");
         self.recipients = self
             .data
@@ -575,32 +658,38 @@ impl App {
         let Some(id) = self.edit_id else {
             return;
         };
-        if !self.can_update() {
-            self.toast(
-                "Akses ditolak",
-                "Scope Anda tidak dapat mengubah status.",
-                Tone::Warning,
-            );
-            return;
-        }
-        let Some(current) = self.data.sample(id) else {
+        let Some(current) = self.data.sample(id).map(|sample| sample.status) else {
             return;
         };
-        if current.status.is_final() {
-            self.toast(
-                "Status sudah final",
-                "Sample yang sudah di-update tidak dapat diubah lagi.",
-                Tone::Warning,
-            );
-            return;
-        }
         let status = self.edit_status;
-        if status == Status::Unanalyzed {
-            self.toast(
-                "Pilih status",
-                "Tentukan hasil analisa sebelum menyimpan.",
-                Tone::Warning,
-            );
+        let options = self.next_statuses(current);
+        if !options.contains(&status) {
+            let (title, body) = if current.is_final() {
+                (
+                    "Status sudah final",
+                    "Sample yang sudah final tidak dapat diubah lagi.",
+                )
+            } else if current == Status::Resampling && !self.can_resample() {
+                (
+                    "Bukan langkah Anda",
+                    "Hanya QCI yang dapat menandai sample sudah diresample.",
+                )
+            } else if matches!(current, Status::Unanalyzed | Status::WaitingHuds)
+                && !self.can_update()
+            {
+                (
+                    "Akses ditolak",
+                    "Hanya Leader QC yang dapat memutuskan status sample.",
+                )
+            } else if status == current {
+                ("Pilih status", "Pilih status baru sebelum menyimpan.")
+            } else {
+                (
+                    "Transisi tidak diizinkan",
+                    "Status ini tidak dapat dipindah ke pilihan tersebut.",
+                )
+            };
+            self.toast(title, body, Tone::Warning);
             return;
         }
         let now = now_secs();
@@ -680,7 +769,7 @@ impl App {
         if existing.status.is_final() {
             self.toast(
                 "Sample sudah final",
-                "Sample yang sudah di-update tidak dapat diubah lagi, termasuk remarks.",
+                "Sample yang sudah final tidak dapat diubah lagi, termasuk remarks.",
                 Tone::Warning,
             );
             return;
@@ -841,10 +930,10 @@ impl App {
     }
 
     /// Counts per filter, in `NoticeFilter::ALL` order, for the tabs' badges.
-    pub fn notice_counts(&self) -> [usize; 6] {
+    pub fn notice_counts(&self) -> [usize; 9] {
         let me = self.data.current_user;
         let rows = self.data.notices_for(me);
-        let mut counts = [0usize; 6];
+        let mut counts = [0usize; 9];
         for (i, filter) in NoticeFilter::ALL.into_iter().enumerate() {
             counts[i] = rows.iter().filter(|n| filter.matches(n, me)).count();
         }
@@ -993,15 +1082,27 @@ mod tests {
         a.add_remark(8);
         assert_eq!(a.data.sample(8).unwrap().remarks.len(), before + 2);
 
-        // A decision closes the sample: no more remarks from anyone.
+        // A resampling decision is intermediate, so the thread stays open.
         a.data.current_user = 4;
         a.open_sample(8);
         a.edit_status = Status::Resampling;
         a.save_update();
+        assert_eq!(a.data.sample(8).unwrap().status, Status::Resampling);
+        a.data.current_user = 1;
+        a.remark_draft = TextEdit::new("Pengambilan ulang dijadwalkan besok.");
+        a.add_remark(8);
+        assert_eq!(a.data.sample(8).unwrap().remarks.len(), before + 3);
+
+        // QCI closes the request; that terminal status locks the thread.
+        a.data.current_user = 5;
+        a.open_sample(8);
+        a.edit_status = Status::Resampled;
+        a.save_update();
+        assert_eq!(a.data.sample(8).unwrap().status, Status::Resampled);
         a.data.current_user = 1;
         a.remark_draft = TextEdit::new("Terlambat.");
         a.add_remark(8);
-        assert_eq!(a.data.sample(8).unwrap().remarks.len(), before + 2);
+        assert_eq!(a.data.sample(8).unwrap().remarks.len(), before + 3);
     }
 
     #[test]
@@ -1055,6 +1156,23 @@ mod tests {
         a.new_batch = TextEdit::new("MO-LEADER");
         a.save_new_sample();
         assert_eq!(a.data.samples.len(), 13);
+
+        // QCI cannot decide analysis or input, but closes a resampling request.
+        a.data.current_user = 5;
+        a.open_sample(8);
+        a.edit_status = Status::Approved;
+        a.save_update();
+        assert_eq!(a.data.sample(8).unwrap().status, Status::Resampling);
+        a.open_new_sample();
+        a.new_product = TextEdit::new("Tidak boleh");
+        a.new_batch = TextEdit::new("MO-QCI");
+        a.save_new_sample();
+        assert_eq!(a.data.samples.len(), 13);
+        a.open_sample(8);
+        assert_eq!(a.edit_status, Status::Resampled);
+        a.edit_status = Status::Resampled;
+        a.save_update();
+        assert_eq!(a.data.sample(8).unwrap().status, Status::Resampled);
     }
 
     #[test]
@@ -1072,6 +1190,43 @@ mod tests {
         a.edit_status = Status::Resampling;
         a.save_update();
         assert_eq!(a.data.sample(8).unwrap().status, Status::Approved);
+    }
+
+    #[test]
+    fn huds_approval_is_one_more_step_for_the_leader() {
+        let mut a = demo();
+        assert_eq!(a.data.sample(2).unwrap().status, Status::WaitingHuds);
+
+        // QCI cannot approve HUDS.
+        a.data.current_user = 5;
+        a.open_sample(2);
+        assert_eq!(a.edit_status, Status::WaitingHuds);
+        a.save_update();
+        assert_eq!(a.data.sample(2).unwrap().status, Status::WaitingHuds);
+
+        // Leader QC can move it to Approved dengan HUDS.
+        a.data.current_user = 4;
+        a.open_sample(2);
+        assert_eq!(a.edit_status, Status::ApprovedHuds);
+        a.save_update();
+        assert_eq!(a.data.sample(2).unwrap().status, Status::ApprovedHuds);
+
+        // Now it is terminal for everyone, including the admin.
+        a.data.current_user = 1;
+        a.open_sample(2);
+        a.edit_status = Status::NotQualified;
+        a.save_update();
+        assert_eq!(a.data.sample(2).unwrap().status, Status::ApprovedHuds);
+    }
+
+    #[test]
+    fn a_sample_can_be_rejected_as_not_qualified() {
+        let mut a = demo();
+        a.data.current_user = 4;
+        a.open_sample(8);
+        a.edit_status = Status::NotQualified;
+        a.save_update();
+        assert_eq!(a.data.sample(8).unwrap().status, Status::NotQualified);
     }
 
     #[test]
@@ -1115,28 +1270,36 @@ mod tests {
     fn the_inbox_filters_by_status_and_unread() {
         let mut a = demo();
         a.data.current_user = 1;
-        assert_eq!(a.notice_counts(), [3, 2, 1, 0, 1, 1]);
+        assert_eq!(a.notice_counts(), [7, 4, 1, 1, 1, 1, 1, 1, 1]);
         a.notice_filter = NoticeFilter::Resampling;
         let rows = a.notices();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].status, Some(Status::Resampling));
+        a.notice_filter = NoticeFilter::Resampled;
+        assert_eq!(a.notices().len(), 1);
+        a.notice_filter = NoticeFilter::NotQualified;
+        assert_eq!(a.notices().len(), 1);
         a.notice_filter = NoticeFilter::Unread;
-        assert_eq!(a.notices().len(), 2);
+        assert_eq!(a.notices().len(), 4);
     }
 
     #[test]
     fn marking_a_notice_read_is_per_person() {
         let mut a = demo();
         a.data.current_user = 1;
-        assert_eq!(a.unread(), 2);
+        assert_eq!(a.unread(), 4);
         a.mark_read(1);
-        assert_eq!(a.unread(), 1);
+        assert_eq!(a.unread(), 3);
         a.mark_read(3);
+        assert_eq!(a.unread(), 2);
+        a.mark_read(5);
+        assert_eq!(a.unread(), 1);
+        a.mark_read(6);
         assert_eq!(a.unread(), 0);
         a.data.current_user = 2;
-        assert_eq!(a.unread(), 1); // Helper read the first notice, not the resampling one
+        assert_eq!(a.unread(), 3); // Helper read the waiting and approved notices
         a.data.current_user = 3;
-        assert_eq!(a.unread(), 2);
+        assert_eq!(a.unread(), 6);
     }
 
     #[test]
@@ -1188,7 +1351,7 @@ mod tests {
         assert_eq!(rt.state.dialog, Dialog::Sample(8));
 
         let (x, y) = rt
-            .find("choice-Resampling Ulang")
+            .find("choice-Perlu Resample")
             .expect("the resampling choice");
         rt.pointer_down(x, y);
         rt.pointer_up(x, y);
@@ -1238,7 +1401,7 @@ mod tests {
                 ),
                 batch: format!("MO-{:07}", i),
                 stage: stages[(i % 3) as usize],
-                status: statuses[(i % 4) as usize],
+                status: statuses[(i as usize) % statuses.len()],
                 input_by: 2,
                 input_at: now.saturating_sub(i % 86_400),
                 updated_by: 4,
@@ -1334,11 +1497,16 @@ pub fn scenes() -> &'static [(&'static str, fn(&mut App))] {
             s.data.current_user = 4;
             s.open_sample(2);
         }),
+        ("qci-resample", |s| {
+            s.reset_demo();
+            s.data.current_user = 5;
+            s.open_sample(3);
+        }),
         ("toast", |s| {
             s.reset_demo();
             s.announce(
                 "Update tersimpan",
-                "Amoxicillin 500 mg sekarang Resampling Ulang · 5 notifikasi terkirim.",
+                "Amoxicillin 500 mg sekarang Perlu Resample · 5 notifikasi terkirim.",
                 Tone::Success,
             );
         }),

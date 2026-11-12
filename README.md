@@ -3,13 +3,17 @@
 An approval workspace for product samples, built with Rune's native UI. The list is the
 product: each row shows the sample's product, batch/MO, stage, approval status, remarks, who
 input it, and who last updated it. The two audit columns are filled from the signed-in person
-and cannot be typed by hand. New samples start at **Belum Analisa**; once a status decision is
-saved the sample is final and nobody can edit it again. Remarks work like a cell's comments in a
-spreadsheet: every sample keeps a thread, many people can add to it while the sample is open,
-and the list shows the latest one with a count.
+and cannot be typed by hand. New samples start at **Belum Analisa**. A first decision can close
+the sample (**Approved**, **Tidak Memenuhi Syarat**) or leave one more step: **Menunggu
+Approval HUDS** can become **Approved dengan HUDS**, and **Perlu Resample** can become **Sudah
+Resample** when QCI has taken the replacement sample. A terminal sample cannot be edited again.
+Remarks work like a cell's comments in a spreadsheet: every sample keeps a thread, many people
+can add to it while the sample is still open, and the list shows the latest one with a count.
 
 ![the sample log](sample-list.png)
 ![team scopes](team-scopes.png)
+![the HUDS approval step](huds-approval.png)
+![completing a resampling request](resample-done.png)
 
 **Live demo:** <https://crauxzahard.github.io/sampletrack-demo/> — open it in Chrome or Edge
 with WebGPU. It is the same web build described under [Web](#web), hosted on GitHub Pages.
@@ -39,7 +43,7 @@ The demo team uses the real scopes, including a person who holds two at once:
 | Helper | Input sample |
 | QA | Read-only |
 | Leader QC | Input sample + Update sample |
-| QCI | Read-only |
+| QCI | Resample sample |
 | Admin | Admin (all scopes) |
 
 Snapshot scenes render deterministically without a window:
@@ -50,35 +54,54 @@ cargo run -p sample-tracker -- --snap update.png --scene edit-sample --theme lig
 ```
 
 Scenes: `samples`, `people`, `notices`, `new-sample`, `new-user`, `edit-sample`, `switcher`,
-`readonly`, `readonly-edit`, `input-edit`, `leader-edit`, `toast`.
+`readonly`, `readonly-edit`, `input-edit`, `leader-edit`, `qci-resample`, `toast`.
 
 ## Scopes
 
 Permissions are enforced in the actions as well as hidden in the UI.
 
-| Scope | Add sample | Update status | Add remarks | Bulk notify | Manage team |
-| --- | --- | --- | --- | --- | --- |
-| Read-only | — | — | — | — | — |
-| Input Sample | ✓ | — | ✓ | — | — |
-| Update Sample | — | ✓ | ✓ | ✓ | — |
-| Admin | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Scope | Add sample | Update status | Mark resampled | Add remarks | Bulk notify | Manage team |
+| --- | --- | --- | --- | --- | --- | --- |
+| Read-only | — | — | — | — | — | — |
+| Input Sample | ✓ | — | — | ✓ | — | — |
+| Update Sample | — | ✓ | — | ✓ | ✓ | — |
+| Resample Sample | — | — | ✓ | ✓ | ✓ | — |
+| Admin | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 Input and Update combine: Leader QC holds both, so one person can enter a sample and then move
-its status. Read-only is the empty set; Admin covers every scope.
+its status. Resample is QCI's single-purpose scope: it can only move **Perlu Resample** to
+**Sudah Resample**, and Leader QC cannot make that step. Read-only is the empty set; Admin
+covers every scope.
 
 An admin changes any member's scope on **Pengguna & akses**. The last admin cannot be demoted.
-An update is saved with the current person in **Updated by** and the new status; the picked
-recipients get one in-app notification. Notifications can only be sent from that first status
-update, never from a finished sample or from anywhere else in the app. The notification page
-shows each person only the messages addressed to them, with per-person read state, and filters
-for **Semua**, **Belum dibaca**, **Belum analisa**, **Approved**, **Menunggu HUDS**, and
-**Resampling** so a reader such as QCI can open the resampling queue directly.
+A status save records the current person in **Updated by** and the new status; the picked
+recipients get one in-app notification. Notifications can only be sent from a status update,
+never from a terminal sample or from anywhere else in the app. The notification page shows each
+person only the messages addressed to them, with per-person read state, and filters for
+**Semua**, **Belum dibaca**, **Belum analisa**, **Approved**, **Approved HUDS**, **Menunggu
+HUDS**, **Resampling**, **Sudah resample**, and **Tidak memenuhi** so a reader such as QCI can
+open the resampling queue directly.
 
 Remarks are separate from the status save: the composer appends immediately and keeps the
-author. A decision closes the sample: no further status changes and no further remarks.
+author. A terminal status closes the sample: no further status changes and no further remarks.
+**Menunggu Approval HUDS** and **Perlu Resample** keep the thread open because they still have a
+next step.
 
-Statuses: **Belum Analisa** (initial), **Approved**, **Menunggu Approval HUDS**, **Resampling
-Ulang**. Stages: **Granule**, **Core**, **Coated**.
+Statuses: **Belum Analisa** (initial), **Approved**, **Approved dengan HUDS**, **Menunggu
+Approval HUDS**, **Perlu Resample**, **Sudah Resample**, **Tidak Memenuhi Syarat**. The review
+graph is:
+
+```
+Belum Analisa ──► Approved
+              ├──► Menunggu Approval HUDS ──► Approved dengan HUDS
+              ├──► Perlu Resample ──────────► Sudah Resample
+              └──► Tidak Memenuhi Syarat
+```
+
+Stages: **Granule**, **Core**, **Coated**.
+
+The HUDS step and the Not Qualified stop belong to the update scope (Leader QC, or Admin).
+Closing a resampling request belongs to the resample scope (QCI, or Admin).
 
 ## Data
 
@@ -92,10 +115,10 @@ Ulang**. Stages: **Granule**, **Core**, **Coated**.
 Swapping it for a REST client means implementing the same three methods; the views and the
 actions never touch a file or a socket.
 
-First launch seeds five people and twelve samples across the four statuses. A committed change
+First launch seeds five people and twelve samples across the seven statuses. A committed change
 writes through the repository immediately. The demo is local to one machine; multi-user sync
 needs the server-backed implementation. The workspace schema is versioned: a saved workspace
-older than v2 is ignored and reseeded, so the current demo people, stages and statuses appear.
+older than v3 is ignored and reseeded, so the current demo people, stages and statuses appear.
 
 ## Scale
 
@@ -152,7 +175,7 @@ boundary, not the production database.
 
 ## Web
 
-Rune's experimental web target renders the same views through WebGPU. Run the build script from a Rune checkout with this package in examples/sample-tracker; this repo is the app source, not a copy of the framework:
+Rune's experimental web target renders the same views through WebGPU. Run the build script from a Rune checkout with this package in `examples/sample-tracker`; this repo is the app source, not a copy of the framework:
 
 ```sh
 rustup target add wasm32-unknown-unknown
