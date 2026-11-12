@@ -200,6 +200,7 @@ cp crates/rune/assets/web/Inter-*.ttf target/web-sample-tracker/
 cargo test -p sample-tracker
 ```
 
-The tests cover scope enforcement (including a person with both Input and Update), automatic
-audit attribution, the last-admin guard, the remark thread, per-person notification
-delivery/read state, and a headless row → dialog → save interaction.
+The tests cover scope enforcement (including the QCI resample step and a person with both Input
+and Update), the status graph and terminal locking, automatic audit attribution, the last-admin
+guard, the remark thread, per-person notification delivery/read state, and a headless row →
+dialog → save interaction.
