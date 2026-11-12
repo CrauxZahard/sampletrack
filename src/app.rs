@@ -202,7 +202,9 @@ impl App {
         let repo = LocalJson::open();
         let mut data = repo
             .load()
-            .filter(|d| !d.users.is_empty() && d.user(d.current_user).is_some())
+            .filter(|d| {
+                d.version >= 2 && !d.users.is_empty() && d.user(d.current_user).is_some()
+            })
             .unwrap_or_else(|| Data::seed(now_secs()));
         data.migrate();
         App::with_repo(data, Box::new(repo))

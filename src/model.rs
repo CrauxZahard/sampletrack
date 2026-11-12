@@ -613,7 +613,7 @@ impl Data {
             },
         ];
         Data {
-            version: 1,
+            version: 2,
             users,
             samples,
             notices,

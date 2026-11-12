@@ -94,7 +94,8 @@ actions never touch a file or a socket.
 
 First launch seeds five people and twelve samples across the four statuses. A committed change
 writes through the repository immediately. The demo is local to one machine; multi-user sync
-needs the server-backed implementation.
+needs the server-backed implementation. The workspace schema is versioned: a saved workspace
+older than v2 is ignored and reseeded, so the current demo people, stages and statuses appear.
 
 ## Scale
 
