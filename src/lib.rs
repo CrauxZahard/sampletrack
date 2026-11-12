@@ -34,7 +34,7 @@ fn on_key(s: &mut app::App, ev: &KeyEvent, _: &mut Tx) -> bool {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen(start))]
 pub fn start() {
     rune::run(AppSpec {
-        min_size: Some((1200.0, 700.0)),
+        min_size: Some((360.0, 640.0)),
         scenes: app::scenes(),
         poll: Some(app::App::poll),
         on_key: Some(on_key),

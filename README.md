@@ -14,6 +14,8 @@ can add to it while the sample is still open, and the list shows the latest one 
 ![team scopes](team-scopes.png)
 ![the HUDS approval step](huds-approval.png)
 ![completing a resampling request](resample-done.png)
+![the sample log on a phone](sample-list-mobile.png)
+![the inbox on a phone](notices-mobile.png)
 
 **Live demo:** <https://crauxzahard.github.io/sampletrack-demo/> — open it in Chrome or Edge
 with WebGPU. It is the same web build described under [Web](#web), hosted on GitHub Pages.
@@ -21,10 +23,20 @@ with WebGPU. It is the same web build described under [Web](#web), hosted on Git
 ## Design
 
 The direction comes from the ui-ux-pro-max skill: **Swiss Modernism 2.0** for the layout and a
-**data-dense dashboard** for the table. Warm paper, graphite ink and a safety-orange accent; 1–3
-point corners; uppercase micro-labels; square monograms; flat ledger rows separated by hairlines.
+**data-dense dashboard** for the table. Cool paper, navy ink and a deep blue accent; 1–3 point
+corners; uppercase micro-labels; square monograms; flat ledger rows separated by hairlines.
 There are no floating card stacks, pastel icon tiles, gradients or pill badges. Light and dark
 modes share the same structure.
+
+## Mobile
+
+Below 1000 points the sidebar is replaced by a compact masthead and a three-item bottom bar
+(**Sample**, **Notifikasi**, **Pengguna**); the account switcher moves to the avatar in the
+masthead. The summary becomes a two-row grid instead of a wide strip, the filter tabs wrap, and
+the ledger turns into cards with the product, batch/stage, status, latest remark and both audit
+people on one row. The update dialog stacks its columns and scrolls its content, with the action
+buttons pinned below. Touch scrolling and the canvas' full-viewport sizing come from Rune's web
+target.
 
 ## Run
 
@@ -33,8 +45,8 @@ cargo run -p sample-tracker
 ```
 
 The app opens signed in as Admin. Click the person card at the bottom of the sidebar to switch
-accounts; the switch simulates a login in this local-first build. Ctrl/Cmd+N opens the
-new-sample dialog when your scope allows it.
+accounts, or on a phone tap the avatar in the masthead; the switch simulates a login in this
+local-first build. Ctrl/Cmd+N opens the new-sample dialog when your scope allows it.
 
 The demo team uses the real scopes, including a person who holds two at once:
 
@@ -78,9 +90,11 @@ A status save records the current person in **Updated by** and the new status; t
 recipients get one in-app notification. Notifications can only be sent from a status update,
 never from a terminal sample or from anywhere else in the app. The notification page shows each
 person only the messages addressed to them, with per-person read state, and filters for
-**Semua**, **Belum dibaca**, **Belum analisa**, **Approved**, **Approved HUDS**, **Menunggu
-HUDS**, **Resampling**, **Sudah resample**, and **Tidak memenuhi** so a reader such as QCI can
-open the resampling queue directly.
+**Semua**, **Belum dibaca**, **Belum analisa**, **Approved**, **Menunggu HUDS**, **Perlu
+resample**, and **Tidak lolos** so a reader such as QCI can open the resampling queue directly.
+The **Approved** filter groups an approved sample with one approved setelah HUDS, and **Tidak
+lolos** groups a rejected sample with one that has finished resampling. The table summary and
+the dashboard use the same groups, so the counts never disagree.
 
 Remarks are separate from the status save: the composer appends immediately and keeps the
 author. A terminal status closes the sample: no further status changes and no further remarks.
@@ -171,7 +185,7 @@ boundary, not the production database.
 | `src/store.rs` | the `Repository` trait and its local/web/test implementations |
 | `src/app.rs` | state, permission checks, commits, filtering/sorting, snapshot scenes |
 | `src/ui/` | sidebar and header, sample table, team page, inbox, dialogs, shared widgets |
-| `src/theme.rs` | warm paper, graphite and safety-orange tokens over rune-kit |
+| `src/theme.rs` | cool paper, navy and deep-blue tokens over rune-kit |
 
 ## Web
 

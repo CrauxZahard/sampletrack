@@ -25,23 +25,19 @@ pub enum Filter {
     All,
     Unanalyzed,
     Approved,
-    ApprovedHuds,
     Waiting,
     Resampling,
-    Resampled,
-    NotQualified,
+    NotPassed,
 }
 
 impl Filter {
-    pub const ALL: [Filter; 8] = [
+    pub const ALL: [Filter; 6] = [
         Filter::All,
         Filter::Unanalyzed,
         Filter::Approved,
-        Filter::ApprovedHuds,
         Filter::Waiting,
         Filter::Resampling,
-        Filter::Resampled,
-        Filter::NotQualified,
+        Filter::NotPassed,
     ];
 
     pub fn label(self) -> &'static str {
@@ -49,11 +45,9 @@ impl Filter {
             Filter::All => "Semua",
             Filter::Unanalyzed => "Belum analisa",
             Filter::Approved => "Approved",
-            Filter::ApprovedHuds => "Approved HUDS",
             Filter::Waiting => "Menunggu HUDS",
-            Filter::Resampling => "Resampling",
-            Filter::Resampled => "Sudah resample",
-            Filter::NotQualified => "Tidak memenuhi",
+            Filter::Resampling => "Perlu resample",
+            Filter::NotPassed => "Tidak lolos",
         }
     }
 
@@ -63,11 +57,18 @@ impl Filter {
             Filter::All => "Semua",
             Filter::Unanalyzed => "Belum",
             Filter::Approved => "Approved",
-            Filter::ApprovedHuds => "Appr. HUDS",
             Filter::Waiting => "Menunggu",
             Filter::Resampling => "Resample",
-            Filter::Resampled => "Sudah",
-            Filter::NotQualified => "Tidak lolos",
+            Filter::NotPassed => "Tidak lolos",
+        }
+    }
+
+    /// The narrow-screen caption, for a filter row that has to share the width with a search
+    /// field.
+    pub fn tab_compact(self) -> &'static str {
+        match self {
+            Filter::NotPassed => "Tidak",
+            other => other.tab(),
         }
     }
 
@@ -75,42 +76,38 @@ impl Filter {
         match self {
             Filter::All => true,
             Filter::Unanalyzed => status == Status::Unanalyzed,
-            Filter::Approved => status == Status::Approved,
-            Filter::ApprovedHuds => status == Status::ApprovedHuds,
+            // A HUDS approval is still an approval.
+            Filter::Approved => matches!(status, Status::Approved | Status::ApprovedHuds),
             Filter::Waiting => status == Status::WaitingHuds,
             Filter::Resampling => status == Status::Resampling,
-            Filter::Resampled => status == Status::Resampled,
-            Filter::NotQualified => status == Status::NotQualified,
+            // A finished resample joins the not-passed queue for the reader's filter.
+            Filter::NotPassed => matches!(status, Status::NotQualified | Status::Resampled),
         }
     }
 }
 
-/// Which notices the inbox shows. Status filters make the "resampling" queue one click for QCI
-/// and the other readers, and keep the HUDS and rejection queues separate.
+/// Which notices the inbox shows. The status groups match the sample filters: HUDS approvals
+/// count as approved, and finished resamples sit in the not-passed queue.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NoticeFilter {
     All,
     Unread,
     Unanalyzed,
     Approved,
-    ApprovedHuds,
     Waiting,
     Resampling,
-    Resampled,
-    NotQualified,
+    NotPassed,
 }
 
 impl NoticeFilter {
-    pub const ALL: [NoticeFilter; 9] = [
+    pub const ALL: [NoticeFilter; 7] = [
         NoticeFilter::All,
         NoticeFilter::Unread,
         NoticeFilter::Unanalyzed,
         NoticeFilter::Approved,
-        NoticeFilter::ApprovedHuds,
         NoticeFilter::Waiting,
         NoticeFilter::Resampling,
-        NoticeFilter::Resampled,
-        NoticeFilter::NotQualified,
+        NoticeFilter::NotPassed,
     ];
 
     pub fn label(self) -> &'static str {
@@ -119,11 +116,9 @@ impl NoticeFilter {
             NoticeFilter::Unread => "Belum dibaca",
             NoticeFilter::Unanalyzed => "Belum analisa",
             NoticeFilter::Approved => "Approved",
-            NoticeFilter::ApprovedHuds => "Approved HUDS",
             NoticeFilter::Waiting => "Menunggu HUDS",
-            NoticeFilter::Resampling => "Resampling",
-            NoticeFilter::Resampled => "Sudah resample",
-            NoticeFilter::NotQualified => "Tidak memenuhi",
+            NoticeFilter::Resampling => "Perlu resample",
+            NoticeFilter::NotPassed => "Tidak lolos",
         }
     }
 
@@ -134,11 +129,18 @@ impl NoticeFilter {
             NoticeFilter::Unread => "Belum dibaca",
             NoticeFilter::Unanalyzed => "Belum",
             NoticeFilter::Approved => "Approved",
-            NoticeFilter::ApprovedHuds => "Appr. HUDS",
             NoticeFilter::Waiting => "Menunggu",
             NoticeFilter::Resampling => "Resample",
-            NoticeFilter::Resampled => "Sudah",
-            NoticeFilter::NotQualified => "Tidak lolos",
+            NoticeFilter::NotPassed => "Tidak lolos",
+        }
+    }
+
+    /// The narrow-screen caption, for seven tabs that have to share a phone's width.
+    pub fn tab_compact(self) -> &'static str {
+        match self {
+            NoticeFilter::Unread => "Baru",
+            NoticeFilter::NotPassed => "Tidak",
+            other => other.tab(),
         }
     }
 
@@ -147,12 +149,15 @@ impl NoticeFilter {
             NoticeFilter::All => true,
             NoticeFilter::Unread => !notice.read_by.contains(&me),
             NoticeFilter::Unanalyzed => notice.status == Some(Status::Unanalyzed),
-            NoticeFilter::Approved => notice.status == Some(Status::Approved),
-            NoticeFilter::ApprovedHuds => notice.status == Some(Status::ApprovedHuds),
+            NoticeFilter::Approved => {
+                matches!(notice.status, Some(Status::Approved | Status::ApprovedHuds))
+            }
             NoticeFilter::Waiting => notice.status == Some(Status::WaitingHuds),
             NoticeFilter::Resampling => notice.status == Some(Status::Resampling),
-            NoticeFilter::Resampled => notice.status == Some(Status::Resampled),
-            NoticeFilter::NotQualified => notice.status == Some(Status::NotQualified),
+            NoticeFilter::NotPassed => matches!(
+                notice.status,
+                Some(Status::NotQualified | Status::Resampled)
+            ),
         }
     }
 }
@@ -161,12 +166,12 @@ impl NoticeFilter {
 pub struct Counts {
     pub total: usize,
     pub unanalyzed: usize,
-    pub approved: usize,
-    pub approved_huds: usize,
     pub waiting: usize,
     pub resampling: usize,
-    pub resampled: usize,
-    pub not_qualified: usize,
+    /// Approved plus approved dengan HUDS.
+    pub approved: usize,
+    /// Tidak memenuhi syarat plus a finished resample.
+    pub not_passed: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -190,6 +195,24 @@ pub enum SortKey {
     Product,
     Batch,
     Status,
+}
+
+impl SortKey {
+    pub const ALL: [SortKey; 4] = [
+        SortKey::Updated,
+        SortKey::Product,
+        SortKey::Batch,
+        SortKey::Status,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SortKey::Updated => "Update",
+            SortKey::Product => "Produk",
+            SortKey::Batch => "Batch",
+            SortKey::Status => "Status",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -436,12 +459,10 @@ impl App {
             for sample in &self.data.samples {
                 match sample.status {
                     Status::Unanalyzed => counts.unanalyzed += 1,
-                    Status::Approved => counts.approved += 1,
-                    Status::ApprovedHuds => counts.approved_huds += 1,
+                    Status::Approved | Status::ApprovedHuds => counts.approved += 1,
                     Status::WaitingHuds => counts.waiting += 1,
                     Status::Resampling => counts.resampling += 1,
-                    Status::Resampled => counts.resampled += 1,
-                    Status::NotQualified => counts.not_qualified += 1,
+                    Status::Resampled | Status::NotQualified => counts.not_passed += 1,
                 }
             }
             *cache = (self.counts_version, counts);
@@ -536,6 +557,20 @@ impl App {
             self.sort = key;
             self.sort_desc = matches!(key, SortKey::Updated);
         }
+    }
+
+    /// The mobile sort control: step through the keys, keeping a sensible default direction.
+    pub fn next_sort(&mut self) {
+        let index = SortKey::ALL
+            .iter()
+            .position(|key| *key == self.sort)
+            .unwrap_or(0);
+        self.sort = SortKey::ALL[(index + 1) % SortKey::ALL.len()];
+        self.sort_desc = matches!(self.sort, SortKey::Updated);
+    }
+
+    pub fn toggle_sort_dir(&mut self) {
+        self.sort_desc = !self.sort_desc;
     }
 
     pub fn reset_filters(&mut self) {
@@ -930,10 +965,10 @@ impl App {
     }
 
     /// Counts per filter, in `NoticeFilter::ALL` order, for the tabs' badges.
-    pub fn notice_counts(&self) -> [usize; 9] {
+    pub fn notice_counts(&self) -> [usize; 7] {
         let me = self.data.current_user;
         let rows = self.data.notices_for(me);
-        let mut counts = [0usize; 9];
+        let mut counts = [0usize; 7];
         for (i, filter) in NoticeFilter::ALL.into_iter().enumerate() {
             counts[i] = rows.iter().filter(|n| filter.matches(n, me)).count();
         }
@@ -1270,17 +1305,33 @@ mod tests {
     fn the_inbox_filters_by_status_and_unread() {
         let mut a = demo();
         a.data.current_user = 1;
-        assert_eq!(a.notice_counts(), [7, 4, 1, 1, 1, 1, 1, 1, 1]);
+        assert_eq!(a.notice_counts(), [7, 4, 1, 2, 1, 1, 2]);
         a.notice_filter = NoticeFilter::Resampling;
         let rows = a.notices();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].status, Some(Status::Resampling));
-        a.notice_filter = NoticeFilter::Resampled;
-        assert_eq!(a.notices().len(), 1);
-        a.notice_filter = NoticeFilter::NotQualified;
-        assert_eq!(a.notices().len(), 1);
+        a.notice_filter = NoticeFilter::Approved;
+        assert_eq!(a.notices().len(), 2);
+        a.notice_filter = NoticeFilter::NotPassed;
+        assert_eq!(a.notices().len(), 2);
         a.notice_filter = NoticeFilter::Unread;
         assert_eq!(a.notices().len(), 4);
+    }
+
+    #[test]
+    fn the_status_filters_group_huds_and_resampled_samples() {
+        let mut a = demo();
+        let counts = a.counts();
+        assert_eq!(counts.total, 12);
+        assert_eq!(counts.approved, 4);
+        assert_eq!(counts.not_passed, 2);
+
+        a.filter = Filter::Approved;
+        assert_eq!(a.visible_len(), 4);
+        a.filter = Filter::NotPassed;
+        assert_eq!(a.visible_len(), 2);
+        a.filter = Filter::Resampling;
+        assert_eq!(a.visible_len(), 2);
     }
 
     #[test]

@@ -161,6 +161,41 @@ pub fn status_mark(k: &Kit, status: Status) -> El {
         )
 }
 
+/// A phone-sized status mark: the same colour signal with a label that fits beside a product
+/// name. The full label stays in the row's accessibility label.
+pub fn status_mark_compact(k: &Kit, status: Status) -> El {
+    let (_, fg) = status_colors(k, status);
+    row()
+        .h(18.0)
+        .gap(5.0)
+        .center_y()
+        .role("status")
+        .label(status.label())
+        .child(el().size(5.0, 5.0).fill(fg).a11y_hidden())
+        .child(
+            text(short_status(status))
+                .font(TextStyle {
+                    size: 9.5,
+                    weight: 560.0,
+                    line_height: 12.0,
+                    ..k.ty.ui
+                })
+                .color(fg),
+        )
+}
+
+pub fn short_status(status: Status) -> &'static str {
+    match status {
+        Status::Unanalyzed => "Belum",
+        Status::Approved => "Approved",
+        Status::ApprovedHuds => "Appr. HUDS",
+        Status::WaitingHuds => "Menunggu",
+        Status::Resampling => "Resample",
+        Status::Resampled => "Sudah",
+        Status::NotQualified => "Tidak lolos",
+    }
+}
+
 pub fn nav_item(
     k: &Kit,
     key: &str,

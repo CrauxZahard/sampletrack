@@ -1,22 +1,27 @@
-//! The sample log: a fixed metric strip over a virtualized ledger. Only the rows in view are
-//! built, so the cost of a million samples is the query, not the frame.
+//! The sample log: a fixed summary strip over a virtualized ledger. Only the rows in view are
+//! built, so the cost of a million samples is the query, not the frame. Phones get a card row
+//! and a bottom bar instead of the eight-column table.
 
 use std::borrow::Cow;
 
 use rune::{Color, El, GrowthSpec, ScrollSpec, TextStyle, col, el, icon, row, text};
-use rune_kit::{Button, ButtonVariant, ControlSize, Kit, TextInput, glyphs};
+use rune_kit::{
+    Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, Kit, TextInput, glyphs,
+};
 
 use crate::app::{App, Filter, SortKey};
 use crate::icons;
-use crate::model::ago;
+use crate::model::{Sample, ago};
+use crate::ui::Viewport;
 use crate::ui::shell::rule;
 use crate::ui::widgets::{
     avatar, caption, hairline, icon_badge, micro, mono, mono_small, number, small, status_mark,
-    ui_medium,
+    status_mark_compact, ui_medium,
 };
 
 const GAP: f32 = 10.0;
 const ROW_HEIGHT: f32 = 50.0;
+const ROW_HEIGHT_MOBILE: f32 = 108.0;
 const W_BATCH: f32 = 104.0;
 const W_STAGE: f32 = 78.0;
 const W_STATUS: f32 = 164.0;
@@ -26,120 +31,229 @@ const W_ACTION: f32 = 16.0;
 const FLEX_PRODUCT: f32 = 1.0;
 const FLEX_REMARKS: f32 = 1.25;
 
-pub fn page(s: &App, k: &Kit) -> El {
+pub fn page(s: &App, k: &Kit, vp: Viewport) -> El {
     col()
         .key("samples-page")
         .w_full()
         .h_full()
         .min_h(0.0)
-        .padding(26.0)
-        .gap(14.0)
-        .child(metrics(s, k))
-        .child(log(s, k))
+        .padding(vp.pad())
+        .gap(if vp.mobile() { 10.0 } else { 14.0 })
+        .child(metrics(s, k, vp))
+        .child(log(s, k, vp))
 }
 
-fn metrics(s: &App, k: &Kit) -> El {
+fn metrics(s: &App, k: &Kit, vp: Viewport) -> El {
     let c = s.counts();
+    if vp.mobile() {
+        let row1 = row()
+            .w_full()
+            .h(80.0)
+            .child(metric(
+                k,
+                "TOTAL",
+                c.total,
+                k.c.text_accent,
+                true,
+                None,
+                1.0,
+                12.0,
+            ))
+            .child(metric_rule(k))
+            .child(metric(
+                k,
+                "BELUM ANALISA",
+                c.unanalyzed,
+                k.c.text_muted,
+                false,
+                None,
+                1.0,
+                12.0,
+            ))
+            .child(metric_rule(k))
+            .child(metric(
+                k,
+                "MENUNGGU HUDS",
+                c.waiting,
+                k.c.warning.fg,
+                false,
+                None,
+                1.0,
+                12.0,
+            ));
+        let row2 = row()
+            .w_full()
+            .h(80.0)
+            .child(metric(
+                k,
+                "PERLU RESAMPLE",
+                c.resampling,
+                k.c.danger.fg,
+                false,
+                None,
+                1.0,
+                12.0,
+            ))
+            .child(metric_rule(k))
+            .child(metric(
+                k,
+                "APPROVED",
+                c.approved,
+                k.c.success.fg,
+                false,
+                None,
+                1.0,
+                12.0,
+            ))
+            .child(metric_rule(k))
+            .child(metric(
+                k,
+                "TIDAK LOLOS",
+                c.not_passed,
+                k.c.danger.fg,
+                false,
+                None,
+                1.0,
+                12.0,
+            ));
+        return col()
+            .key("metrics")
+            .w_full()
+            .radius(k.radius.md)
+            .fill(k.c.layer_01)
+            .border(0.5, hairline(k))
+            .child(row1)
+            .child(el().h(1.0).w_full().fill(hairline(k)).a11y_hidden())
+            .child(row2);
+    }
+
     row()
         .key("metrics")
         .w_full()
-        .h(90.0)
+        .h(84.0)
         .radius(k.radius.md)
         .fill(k.c.layer_01)
         .border(0.5, hairline(k))
-        .child(metric(k, "TOTAL", c.total, "Semua batch", k.c.text_accent))
+        .child(metric(
+            k,
+            "TOTAL",
+            c.total,
+            k.c.text_accent,
+            true,
+            None,
+            1.25,
+            14.0,
+        ))
         .child(metric_rule(k))
         .child(metric(
             k,
             "BELUM ANALISA",
             c.unanalyzed,
-            "Baru masuk",
             k.c.text_muted,
+            false,
+            None,
+            1.0,
+            14.0,
         ))
         .child(metric_rule(k))
         .child(metric(
             k,
             "MENUNGGU HUDS",
             c.waiting,
-            "Butuh review",
             k.c.warning.fg,
+            false,
+            None,
+            1.0,
+            14.0,
         ))
         .child(metric_rule(k))
         .child(metric(
             k,
             "PERLU RESAMPLE",
             c.resampling,
-            "Belum diambil",
             k.c.danger.fg,
-        ))
-        .child(metric_rule(k))
-        .child(metric(
-            k,
-            "SUDAH RESAMPLE",
-            c.resampled,
-            "Sudah diambil",
-            k.c.text_accent,
+            false,
+            None,
+            1.0,
+            14.0,
         ))
         .child(metric_rule(k))
         .child(metric(
             k,
             "APPROVED",
             c.approved,
-            "Lolos approval",
             k.c.success.fg,
+            false,
+            None,
+            1.0,
+            14.0,
         ))
         .child(metric_rule(k))
         .child(metric(
             k,
-            "APPROVED HUDS",
-            c.approved_huds,
-            "Lolos review HUDS",
-            k.c.success.fg,
-        ))
-        .child(metric_rule(k))
-        .child(metric(
-            k,
-            "TIDAK MEMENUHI",
-            c.not_qualified,
-            "Tidak lolos syarat",
+            "TIDAK LOLOS",
+            c.not_passed,
             k.c.danger.fg,
+            false,
+            None,
+            1.0,
+            14.0,
         ))
 }
 
-fn metric(k: &Kit, label: &str, value: usize, note: &str, tint: Color) -> El {
-    col()
-        .key(format!("metric-{label}"))
-        .grow(1.0)
-        .min_w(0.0)
-        .padding(13.0)
-        .gap(2.0)
-        .child(
-            row()
-                .gap(6.0)
-                .center_y()
-                .child(el().size(5.0, 5.0).fill(tint).a11y_hidden())
-                .child(text(label).font(micro(k)).color(k.c.text_faint)),
-        )
-        .child(
-            text(value.to_string())
-                .font(TextStyle {
-                    features: "'tnum' 1",
-                    ..number(k)
-                })
-                .color(k.c.text_base),
-        )
-        .child(text(note).font(caption(k)).color(k.c.text_muted).truncate())
+/// One cell in the summary strip: a micro label, a number, and a two-point rule in the status
+/// colour. No dots, no notes; the number is the thing to read.
+fn metric(
+    k: &Kit,
+    label: &str,
+    value: usize,
+    tint: Color,
+    emphasis: bool,
+    width: Option<f32>,
+    weight: f32,
+    pad: f32,
+) -> El {
+    let mut cell = col().h_full().padding(pad).gap(2.0);
+    cell = match width {
+        Some(w) => cell.w(w),
+        None => cell.grow(weight).min_w(0.0),
+    };
+    let font = if emphasis {
+        TextStyle {
+            size: 33.0,
+            weight: 620.0,
+            line_height: 37.0,
+            tracking: -1.0,
+            ..number(k)
+        }
+    } else {
+        number(k)
+    };
+    cell.child(text(label).font(micro(k)).color(k.c.text_faint))
+        .child(text(value.to_string()).font(font).color(if emphasis {
+            k.c.text_accent
+        } else {
+            k.c.text_base
+        }))
+        .child(el().grow(1.0))
+        .child(el().h(2.0).w_full().fill(tint))
 }
 
 fn metric_rule(k: &Kit) -> El {
     el().w(1.0).h_full().fill(hairline(k)).a11y_hidden()
 }
 
-fn log(s: &App, k: &Kit) -> El {
+fn log(s: &App, k: &Kit, vp: Viewport) -> El {
     let shown = s.visible_len();
     let total = s.counts().total;
     let now = s.now();
     let kit = k.clone();
+    let mobile = vp.mobile();
+    let row_height = if mobile {
+        ROW_HEIGHT_MOBILE
+    } else {
+        ROW_HEIGHT
+    };
     let body = if shown == 0 {
         col()
             .key("log-empty")
@@ -156,11 +270,17 @@ fn log(s: &App, k: &Kit) -> El {
             .virtual_rows_version((s.visible_generation(), shown))
             .virtual_rows(
                 shown,
-                ROW_HEIGHT,
+                row_height,
                 |s: &App, i| Cow::Owned(s.visible_key(i)),
                 move |s: &App, i| {
                     s.visible_sample(i)
-                        .map(|sample| row_view(s, &kit, sample, now))
+                        .map(|sample| {
+                            if mobile {
+                                mobile_row(s, &kit, sample, now)
+                            } else {
+                                row_view(s, &kit, sample, now)
+                            }
+                        })
                         .unwrap_or_else(|| el())
                 },
             );
@@ -175,18 +295,28 @@ fn log(s: &App, k: &Kit) -> El {
             .child(rows)
     };
 
-    col()
+    let toolbar = if mobile {
+        toolbar_mobile(s, k)
+    } else {
+        toolbar(s, k, shown, total)
+    };
+    let footer = if mobile {
+        footer_mobile(s, k, shown, total)
+    } else {
+        footer(s, k, shown, total)
+    };
+
+    let mut container = col()
         .key("sample-log")
         .w_full()
         .grow(1.0)
         .min_h(0.0)
-        .child(toolbar(s, k, shown, total))
-        .child(rule(k))
-        .child(header(s, k))
-        .child(rule(k))
-        .child(body)
-        .child(rule(k))
-        .child(footer(s, k, shown, total))
+        .child(toolbar)
+        .child(rule(k));
+    if !mobile {
+        container = container.child(header(s, k)).child(rule(k));
+    }
+    container.child(body).child(rule(k)).child(footer)
 }
 
 fn toolbar(s: &App, k: &Kit, shown: usize, total: usize) -> El {
@@ -200,7 +330,7 @@ fn toolbar(s: &App, k: &Kit, shown: usize, total: usize) -> El {
 
     let mut tabs = row().key("filters").gap(2.0).h(32.0).items_end();
     for f in Filter::ALL {
-        tabs = tabs.child(filter_tab(k, f, s.filter == f));
+        tabs = tabs.child(filter_tab(k, f, s.filter == f, false));
     }
     let tabs = el()
         .key("filter-viewport")
@@ -226,8 +356,30 @@ fn toolbar(s: &App, k: &Kit, shown: usize, total: usize) -> El {
         )
 }
 
-fn filter_tab(k: &Kit, f: Filter, active: bool) -> El {
-    let label = f.tab().to_uppercase();
+fn toolbar_mobile(s: &App, k: &Kit) -> El {
+    let search = TextInput::new(&s.search)
+        .placeholder("Cari produk, batch, stage...")
+        .label("Cari sample")
+        .leading_icon(&glyphs::SEARCH)
+        .width(None)
+        .on_edit(|s: &mut App| &mut s.search)
+        .build(k);
+
+    let mut tabs = row().key("filters").w_full().gap(2.0).flex_wrap();
+    for f in Filter::ALL {
+        tabs = tabs.child(filter_tab(k, f, s.filter == f, true));
+    }
+
+    col()
+        .key("log-toolbar")
+        .w_full()
+        .gap(6.0)
+        .child(search)
+        .child(tabs)
+}
+
+fn filter_tab(k: &Kit, f: Filter, active: bool, compact: bool) -> El {
+    let label = if compact { f.tab_compact() } else { f.tab() }.to_uppercase();
     col()
         .key(format!("filter-{}", f.label()))
         .role("radio")
@@ -241,7 +393,7 @@ fn filter_tab(k: &Kit, f: Filter, active: bool) -> El {
         .cursor(rune::Cursor::Pointer)
         .on_press(move |s: &mut App| s.filter = f)
         .child(
-            row().px(6.0).pb(7.0).child(
+            row().px(4.0).pb(7.0).child(
                 text(label)
                     .font(micro(k))
                     .color(if active {
@@ -363,7 +515,7 @@ fn head_cell(
     }
 }
 
-fn row_view(s: &App, k: &Kit, sample: &crate::model::Sample, now: u64) -> El {
+fn row_view(s: &App, k: &Kit, sample: &Sample, now: u64) -> El {
     let id = sample.id;
     let product = sample.product.clone();
     let batch = sample.batch.clone();
@@ -511,6 +663,135 @@ fn row_view(s: &App, k: &Kit, sample: &crate::model::Sample, now: u64) -> El {
         .child(action)
 }
 
+fn mobile_row(s: &App, k: &Kit, sample: &Sample, now: u64) -> El {
+    let id = sample.id;
+    let product = sample.product.clone();
+    let batch = sample.batch.clone();
+    let stage = sample.stage.label().to_uppercase();
+    let latest = sample
+        .latest_remark()
+        .map(|r| r.text.clone())
+        .unwrap_or_default();
+    let remark_count = sample.remark_count();
+    let input_by = s.data.user(sample.input_by);
+    let updated_by = s.data.user(sample.updated_by);
+
+    let product_row = row()
+        .w_full()
+        .gap(8.0)
+        .center_y()
+        .child(
+            el().grow(1.0).min_w(0.0).child(
+                text(product.clone())
+                    .font(ui_medium(k))
+                    .color(k.c.text_base)
+                    .truncate(),
+            ),
+        )
+        .child(status_mark_compact(k, sample.status));
+
+    let meta = row()
+        .w_full()
+        .gap(7.0)
+        .center_y()
+        .child(text(batch.clone()).font(mono(k)).color(k.c.text_muted))
+        .child(text("·").font(mono_small(k)).color(k.c.text_faint))
+        .child(text(stage).font(micro(k)).color(k.c.text_faint))
+        .child(el().grow(1.0))
+        .child(
+            text(ago(now, sample.updated_at))
+                .font(mono_small(k))
+                .color(k.c.text_faint),
+        );
+
+    let snippet = if latest.is_empty() {
+        "—".to_owned()
+    } else {
+        latest
+    };
+    let mut remarks = row().w_full().gap(6.0).center_y();
+    if remark_count > 1 {
+        remarks = remarks.child(
+            text(format!("{remark_count}×"))
+                .font(TextStyle {
+                    size: 10.0,
+                    weight: 550.0,
+                    line_height: 13.0,
+                    ..k.ty.mono
+                })
+                .color(k.c.text_accent),
+        );
+    }
+    remarks = remarks.child(
+        el().grow(1.0).min_w(0.0).child(
+            text(snippet)
+                .font(caption(k))
+                .color(k.c.text_muted)
+                .truncate(),
+        ),
+    );
+
+    let audit = row()
+        .w_full()
+        .gap(5.0)
+        .center_y()
+        .child(match input_by {
+            Some(u) => avatar(k, u, 15.0),
+            None => el(),
+        })
+        .child(
+            text(
+                input_by
+                    .map(|u| u.name.clone())
+                    .unwrap_or_else(|| "—".into()),
+            )
+            .font(caption(k))
+            .color(k.c.text_faint)
+            .truncate(),
+        )
+        .child(text("→").font(mono_small(k)).color(k.c.text_faint))
+        .child(match updated_by {
+            Some(u) => avatar(k, u, 15.0),
+            None => el(),
+        })
+        .child(
+            text(
+                updated_by
+                    .map(|u| u.name.clone())
+                    .unwrap_or_else(|| "—".into()),
+            )
+            .font(caption(k))
+            .color(k.c.text_faint)
+            .truncate(),
+        );
+
+    col()
+        .key(format!("sample-{id}"))
+        .role("row")
+        .label(format!(
+            "{}, {}, {}, {}",
+            sample.product,
+            sample.batch,
+            sample.stage.label(),
+            sample.status.label()
+        ))
+        .focusable(true)
+        .w_full()
+        .h(ROW_HEIGHT_MOBILE)
+        .py(11.0)
+        .gap(4.0)
+        .hover(k.c.layer_02)
+        .press(k.c.pressed)
+        .focus_ring(2.0, 1.0, k.c.border_focus)
+        .cursor(rune::Cursor::Pointer)
+        .on_press(move |s: &mut App| s.open_sample(id))
+        .child(product_row)
+        .child(meta)
+        .child(remarks)
+        .child(audit)
+        .child(el().h(1.0).w_full().fill(hairline(k)).a11y_hidden())
+}
+
 fn empty(s: &App, k: &Kit) -> El {
     let filtered = !s.search.text.trim().is_empty() || s.filter != Filter::All;
     let mut c = col()
@@ -576,5 +857,43 @@ fn footer(s: &App, k: &Kit, shown: usize, total: usize) -> El {
                 ..k.ty.mono
             })
             .color(k.c.text_faint),
+        )
+}
+
+fn footer_mobile(s: &App, k: &Kit, shown: usize, total: usize) -> El {
+    row()
+        .key("log-footer")
+        .w_full()
+        .h(40.0)
+        .gap(6.0)
+        .center_y()
+        .child(
+            text(format!("{shown} dari {total}"))
+                .font(micro(k))
+                .color(k.c.text_faint),
+        )
+        .child(el().grow(1.0))
+        .child(
+            Button::new(format!("Urut: {}", s.sort.label()))
+                .variant(ButtonVariant::Ghost)
+                .control_size(ControlSize::Small)
+                .on_press(|s: &mut App| s.next_sort())
+                .build(k),
+        )
+        .child(
+            IconButton::new(if s.sort_desc {
+                &glyphs::CHEVRON_DOWN
+            } else {
+                &glyphs::CHEVRON_UP
+            })
+            .variant(IconButtonVariant::Ghost)
+            .control_size(ControlSize::Small)
+            .label(if s.sort_desc {
+                "Urutan turun"
+            } else {
+                "Urutan naik"
+            })
+            .on_press(|s: &mut App| s.toggle_sort_dir())
+            .build(k),
         )
 }

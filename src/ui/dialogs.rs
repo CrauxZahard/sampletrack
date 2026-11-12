@@ -10,21 +10,22 @@ use rune_kit::{
 use crate::app::{App, Dialog as Screen};
 use crate::icons;
 use crate::model::{Remark, Scope, Stage, Status, User, ago};
+use crate::ui::Viewport;
 use crate::ui::widgets::{
     avatar, caption, count_tag, hairline, micro, scope_toggle, status_colors, ui, ui_medium,
 };
 
-pub fn build(s: &App, k: &Kit, layer: &mut Vec<El>) {
+pub fn build(s: &App, k: &Kit, layer: &mut Vec<El>, vp: Viewport) {
     match s.dialog {
         Screen::None => {}
-        Screen::NewSample => new_sample(s, k, layer),
+        Screen::NewSample => new_sample(s, k, layer, vp),
         Screen::Sample(id) => {
             if s.data.sample(id).is_some() {
-                update_sample(s, k, layer, id);
+                update_sample(s, k, layer, id, vp);
             }
         }
-        Screen::SwitchUser => switch_user(s, k, layer),
-        Screen::NewUser => new_user(s, k, layer),
+        Screen::SwitchUser => switch_user(s, k, layer, vp),
+        Screen::NewUser => new_user(s, k, layer, vp),
     }
 }
 
@@ -68,7 +69,7 @@ fn actions(k: &Kit, cancel: &str, primary: Option<El>) -> El {
 
 // ---- new sample ---------------------------------------------------------
 
-fn new_sample(s: &App, k: &Kit, layer: &mut Vec<El>) {
+fn new_sample(s: &App, k: &Kit, layer: &mut Vec<El>, vp: Viewport) {
     let me = s.me();
     let ready = s.new_sample_ready();
     let dup = !s.new_batch.text.trim().is_empty() && s.batch_taken(&s.new_batch.text, None);
@@ -159,7 +160,7 @@ fn new_sample(s: &App, k: &Kit, layer: &mut Vec<El>) {
         "new-sample",
         "Sample baru",
         "Status awal Belum Analisa; stage menentukan jalur produksi.",
-        500.0,
+        vp.dialog_width(500.0),
     )
     .click_outside(true)
     .child(body([fields, actions(k, "Batal", Some(primary))]))
@@ -168,10 +169,11 @@ fn new_sample(s: &App, k: &Kit, layer: &mut Vec<El>) {
 
 // ---- update sample ------------------------------------------------------
 
-fn update_sample(s: &App, k: &Kit, layer: &mut Vec<El>, id: u64) {
+fn update_sample(s: &App, k: &Kit, layer: &mut Vec<El>, id: u64, vp: Viewport) {
     let Some(sample) = s.data.sample(id) else {
         return;
     };
+    let mobile = vp.mobile();
     let can_update = s.can_update();
     let can_resample = s.can_resample();
     let is_final = sample.status.is_final();
@@ -222,11 +224,12 @@ fn update_sample(s: &App, k: &Kit, layer: &mut Vec<El>, id: u64) {
         Status::Resampling => "STATUS RESAMPLE",
         _ => "STATUS",
     };
-    let mut status_col = col()
-        .w(232.0)
-        .gap(7.0)
-        .child(section(k, heading))
-        .child(statuses);
+    let mut status_col = col().gap(7.0).child(section(k, heading)).child(statuses);
+    status_col = if mobile {
+        status_col.w_full()
+    } else {
+        status_col.w(232.0)
+    };
     if is_final {
         status_col = status_col.child(locked_note(
             k,
@@ -256,7 +259,7 @@ fn update_sample(s: &App, k: &Kit, layer: &mut Vec<El>, id: u64) {
         .key("remark-thread")
         .w_full()
         .gap(6.0)
-        .max_h(228.0)
+        .max_h(if mobile { 180.0 } else { 228.0 })
         .scroll(ScrollSpec {
             stick_bottom: false,
         });
@@ -275,7 +278,7 @@ fn update_sample(s: &App, k: &Kit, layer: &mut Vec<El>, id: u64) {
 
     let mut remarks_col = col()
         .grow(1.0)
-        .min_w(220.0)
+        .min_w(if mobile { 0.0 } else { 220.0 })
         .gap(8.0)
         .child(
             row()
@@ -291,7 +294,11 @@ fn update_sample(s: &App, k: &Kit, layer: &mut Vec<El>, id: u64) {
         let input = TextInput::new(&s.remark_draft)
             .placeholder("Tulis remarks...")
             .label("Remarks baru")
-            .width(Some(246.0))
+            .width(if mobile {
+                Some((vp.dialog_width(840.0) - 72.0).max(160.0))
+            } else {
+                Some(246.0)
+            })
             .on_edit(|s: &mut App| &mut s.remark_draft)
             .on_submit(move |s: &mut App, _| s.add_remark(id))
             .build(k)
@@ -336,21 +343,48 @@ fn update_sample(s: &App, k: &Kit, layer: &mut Vec<El>, id: u64) {
         None
     };
 
-    let mut columns = row()
-        .w_full()
-        .gap(16.0)
-        .items_start()
-        .child(status_col)
-        .child(remarks_col);
-    if can_decide {
-        columns = columns.child(notify_col(s, k));
-    }
+    let notify = can_decide.then(|| notify_col(s, k, mobile));
+    let columns = if mobile {
+        let mut c = col()
+            .w_full()
+            .gap(14.0)
+            .child(status_col)
+            .child(remarks_col);
+        if let Some(notify) = notify {
+            c = c.child(notify);
+        }
+        c
+    } else {
+        let mut r = row()
+            .w_full()
+            .gap(16.0)
+            .items_start()
+            .child(status_col)
+            .child(remarks_col);
+        if let Some(notify) = notify {
+            r = r.child(notify);
+        }
+        r
+    };
 
-    let body = body([
-        facts,
-        columns,
-        actions(k, if can_decide { "Batal" } else { "Tutup" }, primary),
-    ]);
+    let actions_row = actions(k, if can_decide { "Batal" } else { "Tutup" }, primary);
+    let body = if mobile {
+        let content = col()
+            .key("dialog-body")
+            .w_full()
+            .max_h(vp.dialog_body_height())
+            .scroll(ScrollSpec {
+                stick_bottom: false,
+            })
+            .child(body([facts, columns]));
+        col()
+            .key("dialog-mobile-body")
+            .w_full()
+            .child(content)
+            .child(col().w_full().px(16.0).pt(6.0).pb(16.0).child(actions_row))
+    } else {
+        body([facts, columns, actions_row])
+    };
 
     shell(
         "update-sample",
@@ -359,8 +393,12 @@ fn update_sample(s: &App, k: &Kit, layer: &mut Vec<El>, id: u64) {
         } else {
             format!("Update {}", product)
         },
-        format!("{batch} \u{00b7} {stage} \u{00b7} {}", status.label()),
-        if can_decide { 840.0 } else { 660.0 },
+        if mobile {
+            format!("{batch} \u{00b7} {stage}")
+        } else {
+            format!("{batch} \u{00b7} {stage} \u{00b7} {}", status.label())
+        },
+        vp.dialog_width(if can_decide { 840.0 } else { 660.0 }),
     )
     .click_outside(true)
     .child(body)
@@ -368,7 +406,7 @@ fn update_sample(s: &App, k: &Kit, layer: &mut Vec<El>, id: u64) {
 }
 
 /// The bulk message the update can carry: pick any subset of the other people.
-fn notify_col(s: &App, k: &Kit) -> El {
+fn notify_col(s: &App, k: &Kit, mobile: bool) -> El {
     let others: Vec<&User> = s
         .data
         .users
@@ -376,7 +414,12 @@ fn notify_col(s: &App, k: &Kit) -> El {
         .filter(|u| u.id != s.data.current_user)
         .collect();
     let all = s.all_others_selected();
-    let mut col = col().w(238.0).shrink().gap(5.0).child(
+    let mut col = if mobile {
+        col().w_full().shrink().gap(5.0)
+    } else {
+        col().w(238.0).shrink().gap(5.0)
+    };
+    col = col.child(
         row()
             .w_full()
             .gap(8.0)
@@ -576,7 +619,7 @@ fn check_box(k: &Kit, on: bool) -> El {
 
 // ---- switch user --------------------------------------------------------
 
-fn switch_user(s: &App, k: &Kit, layer: &mut Vec<El>) {
+fn switch_user(s: &App, k: &Kit, layer: &mut Vec<El>, vp: Viewport) {
     let mut list = col().key("user-list").w_full();
     for user in &s.data.users {
         let id = user.id;
@@ -658,7 +701,7 @@ fn switch_user(s: &App, k: &Kit, layer: &mut Vec<El>) {
         "switch-user",
         "Ganti pengguna",
         "Pilih siapa yang sedang memakai workspace.",
-        430.0,
+        vp.dialog_width(430.0),
     )
     .child(body([list, note, actions(k, "Tutup", None)]))
     .build(k, layer);
@@ -666,7 +709,7 @@ fn switch_user(s: &App, k: &Kit, layer: &mut Vec<El>) {
 
 // ---- new user -----------------------------------------------------------
 
-fn new_user(s: &App, k: &Kit, layer: &mut Vec<El>) {
+fn new_user(s: &App, k: &Kit, layer: &mut Vec<El>, vp: Viewport) {
     let name = TextInput::new(&s.new_name)
         .placeholder("cth. Nabila Putri")
         .label("Nama anggota")
@@ -706,7 +749,7 @@ fn new_user(s: &App, k: &Kit, layer: &mut Vec<El>) {
         "new-user",
         "Anggota baru",
         "Scope bisa diubah lagi nanti oleh admin.",
-        500.0,
+        vp.dialog_width(500.0),
     )
     .child(body([
         col()

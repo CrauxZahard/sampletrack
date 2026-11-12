@@ -6,67 +6,74 @@ use rune_kit::{Button, ButtonVariant, ControlSize, Kit};
 use crate::app::{App, NoticeFilter};
 use crate::icons;
 use crate::model::{Notice, Stage, ago};
+use crate::ui::Viewport;
 use crate::ui::shell::rule;
 use crate::ui::widgets::{
     avatar, caption, icon_badge, micro, mono, mono_small, small, status_colors, status_mark,
-    ui_medium,
+    status_mark_compact, ui_medium,
 };
 
-pub fn page(s: &App, k: &Kit) -> El {
+pub fn page(s: &App, k: &Kit, vp: Viewport) -> El {
     let rows = s.notices();
     let counts = s.notice_counts();
     let now = s.now();
     let total: usize = counts[0];
 
-    let mut tabs = row().key("notice-filters").gap(2.0).h(32.0).items_end();
-    for (i, filter) in NoticeFilter::ALL.into_iter().enumerate() {
-        tabs = tabs.child(filter_tab(k, filter, counts[i], s.notice_filter == filter));
+    let mut tabs = row().key("notice-filters").gap(2.0).items_end();
+    if !vp.mobile() {
+        tabs = tabs.h(32.0);
     }
-    let tabs = el()
-        .key("notice-filter-viewport")
-        .grow(1.0)
-        .min_w(0.0)
-        .child(tabs)
-        .scroll_x()
-        .scroll_edge_fade(14.0)
-        .label("Filter notifikasi");
+    for (i, filter) in NoticeFilter::ALL.into_iter().enumerate() {
+        tabs = tabs.child(filter_tab(
+            k,
+            filter,
+            counts[i],
+            s.notice_filter == filter,
+            vp.mobile(),
+        ));
+    }
+    let tabs = if vp.mobile() {
+        tabs.w_full().flex_wrap()
+    } else {
+        el().key("notice-filter-viewport")
+            .grow(1.0)
+            .min_w(0.0)
+            .child(tabs)
+            .scroll_x()
+            .scroll_edge_fade(14.0)
+            .label("Filter notifikasi")
+    };
 
     let mut list = col().key("notice-list").w_full();
     if rows.is_empty() {
         list = list.child(empty(s, k));
     } else {
         for n in &rows {
-            list = list.child(notice_row(s, k, n, now));
+            list = list.child(notice_row(s, k, n, now, vp));
             list = list.child(rule(k));
         }
+    }
+
+    let mut header = row().w_full().gap(10.0).center_y().child(tabs);
+    if !vp.mobile() {
+        header = header.h(32.0).child(
+            text(format!("{:02} NOTIFIKASI", total))
+                .font(mono_small(k))
+                .color(k.c.text_faint),
+        );
     }
 
     col()
         .key("notices-page")
         .w_full()
-        .gap(10.0)
-        .child(
-            row()
-                .w_full()
-                .h(32.0)
-                .gap(10.0)
-                .center_y()
-                .child(tabs)
-                .child(
-                    text(format!("{:02} NOTIFIKASI", total))
-                        .font(mono_small(k))
-                        .color(k.c.text_faint),
-                ),
-        )
+        .gap(if vp.mobile() { 8.0 } else { 10.0 })
+        .child(header)
         .child(rule(k))
         .child(list)
 }
 
-fn filter_tab(k: &Kit, filter: NoticeFilter, count: usize, active: bool) -> El {
-    let danger = matches!(
-        filter,
-        NoticeFilter::Resampling | NoticeFilter::NotQualified
-    );
+fn filter_tab(k: &Kit, filter: NoticeFilter, count: usize, active: bool, compact: bool) -> El {
+    let danger = matches!(filter, NoticeFilter::Resampling | NoticeFilter::NotPassed);
     let ink = if active {
         if danger { k.c.danger.fg } else { k.c.text_base }
     } else {
@@ -95,15 +102,22 @@ fn filter_tab(k: &Kit, filter: NoticeFilter, count: usize, active: bool) -> El {
         .on_press(move |s: &mut App| s.notice_filter = filter)
         .child(
             row()
-                .px(6.0)
+                .px(4.0)
                 .pb(7.0)
                 .gap(5.0)
                 .center_y()
                 .child(
-                    text(filter.tab().to_uppercase())
-                        .font(micro(k))
-                        .color(ink)
-                        .a11y_hidden(),
+                    text(
+                        if compact {
+                            filter.tab_compact()
+                        } else {
+                            filter.tab()
+                        }
+                        .to_uppercase(),
+                    )
+                    .font(micro(k))
+                    .color(ink)
+                    .a11y_hidden(),
                 )
                 .child(
                     text(format!("{count:02}"))
@@ -119,7 +133,10 @@ fn filter_tab(k: &Kit, filter: NoticeFilter, count: usize, active: bool) -> El {
         .child(el().h(2.0).w_full().fill(bar))
 }
 
-fn notice_row(s: &App, k: &Kit, n: &Notice, now: u64) -> El {
+fn notice_row(s: &App, k: &Kit, n: &Notice, now: u64, vp: Viewport) -> El {
+    if vp.mobile() {
+        return mobile_notice_row(s, k, n, now);
+    }
     let me = s.data.current_user;
     let unread = !n.read_by.contains(&me);
     let sender = s.data.user(n.from);
@@ -212,6 +229,112 @@ fn notice_row(s: &App, k: &Kit, n: &Notice, now: u64) -> El {
         } else {
             el()
         });
+
+    if unread {
+        row_body = row_body
+            .hover(k.c.layer_02)
+            .press(k.c.pressed)
+            .focus_ring(2.0, 1.0, k.c.border_focus)
+            .cursor(rune::Cursor::Pointer)
+            .role("button")
+            .label(format!("Tandai dibaca: {}", n.title))
+            .focusable(true)
+            .on_press(move |s: &mut App| s.mark_read(id));
+    }
+    row_body
+}
+
+fn mobile_notice_row(s: &App, k: &Kit, n: &Notice, now: u64) -> El {
+    let me = s.data.current_user;
+    let unread = !n.read_by.contains(&me);
+    let sender = s.data.user(n.from);
+    let id = n.id;
+    let accent = n
+        .status
+        .map(|status| status_colors(k, status).1)
+        .unwrap_or(k.c.text_accent);
+
+    let title = row()
+        .w_full()
+        .gap(6.0)
+        .center_y()
+        .child(
+            el().grow(1.0).min_w(0.0).child(
+                text(n.title.clone())
+                    .font(ui_medium(k))
+                    .color(k.c.text_base)
+                    .truncate(),
+            ),
+        )
+        .child(if unread { new_tag(k) } else { el() })
+        .child(
+            text(ago(now, n.at))
+                .font(mono_small(k))
+                .color(k.c.text_faint),
+        );
+
+    let mut body = col().grow(1.0).min_w(0.0).gap(3.0).child(title);
+    if let Some(status) = n.status {
+        body = body.child(status_mark_compact(k, status));
+    }
+    body = body.child(
+        text(n.body.clone())
+            .font(small(k))
+            .color(k.c.text_muted)
+            .wrap()
+            .w_full(),
+    );
+
+    let mut meta = row()
+        .w_full()
+        .mt(2.0)
+        .gap(6.0)
+        .center_y()
+        .child(text(n.batch.clone()).font(mono(k)).color(k.c.text_muted));
+    if let Some(stage) = n.stage {
+        meta = meta
+            .child(text("·").font(mono_small(k)).color(k.c.text_faint))
+            .child(
+                text(stage_tag(stage))
+                    .font(TextStyle {
+                        size: 8.5,
+                        weight: 550.0,
+                        line_height: 11.0,
+                        tracking: 0.7,
+                        ..k.ty.mono
+                    })
+                    .color(k.c.text_faint),
+            );
+    }
+    meta = meta
+        .child(text("·").font(mono_small(k)).color(k.c.text_faint))
+        .child(
+            text(format!(
+                "dari {}",
+                sender.map(|u| u.name.as_str()).unwrap_or("anggota")
+            ))
+            .font(caption(k))
+            .color(k.c.text_faint)
+            .truncate(),
+        );
+    body = body.child(meta);
+
+    let mut row_body = row()
+        .w_full()
+        .py(11.0)
+        .gap(9.0)
+        .items_start()
+        .child(
+            el().w(2.0)
+                .h(36.0)
+                .fill(if unread { accent } else { Color::TRANSPARENT })
+                .a11y_hidden(),
+        )
+        .child(match sender {
+            Some(u) => avatar(k, u, 24.0),
+            None => el().size(24.0, 24.0),
+        })
+        .child(body);
 
     if unread {
         row_body = row_body

@@ -1,4 +1,4 @@
-//! A bench-sheet theme: warm paper and graphite ink with a safety-orange accent, and corners
+//! A cool ledger theme: paper white and navy ink with a strong blue accent, and corners
 //! measured in pixels rather than pills. It follows the Swiss/data-dense direction from
 //! ui-ux-pro-max, tuned for a quality-control workspace.
 
@@ -21,15 +21,15 @@ fn build(dark: bool) -> Kit {
     let c = |s: &str| hex(s).expect("a theme colour");
     let seed = if dark {
         PaletteSeed {
-            bg: c("#12110e"),
-            fg: c("#ede7da"),
-            accent: c("#ff7a45"),
+            bg: c("#0a1220"),
+            fg: c("#e6eefc"),
+            accent: c("#5b9dff"),
         }
     } else {
         PaletteSeed {
-            bg: c("#f1ede4"),
-            fg: c("#17140f"),
-            accent: c("#c2410c"),
+            bg: c("#eef2f8"),
+            fg: c("#0d1b2e"),
+            accent: c("#1d4ed8"),
         }
     };
     let mut k = Kit::from_palette_focus(seed, PaletteFocus::Accent);
