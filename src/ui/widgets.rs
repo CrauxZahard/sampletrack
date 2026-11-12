@@ -315,7 +315,7 @@ pub fn scope_toggle(
     };
     let mut e = row()
         .h(25.0)
-        .px(6.0)
+        .px(4.0)
         .gap(5.0)
         .center_y()
         .radius(1.0)
